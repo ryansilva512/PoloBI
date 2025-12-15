@@ -1,0 +1,192 @@
+Quero que você atue como um especialista em UX, BI e Help Desk e crie **todo o conceito de um site focado em Business Intelligence para Help Desk**.
+
+## 1. Contexto geral
+
+- O site será um **portal de BI de Help Desk**.
+- Objetivo: dar visibilidade clara e acionável sobre os chamados (tickets), desempenho da equipe, satisfação do cliente e cumprimento de SLA.
+- O foco é **tomada de decisão** (Action-Centric Dashboard Design), não apenas visual bonito.
+- O site deve ser pensado para:
+  - Gestores de suporte / coordenadores de Help Desk  
+  - Analistas de suporte  
+  - Diretoria que precisa de visão executiva
+
+Escreva **todo o conteúdo em português do Brasil**, com tom profissional e didático.
+
+## 2. Estrutura do site (mapa de navegação)
+
+Crie uma proposta de arquitetura de informação com menu principal e subpáginas, incluindo no mínimo:
+
+1. **Home – Visão Geral**
+   - Explicar o propósito do portal de BI de Help Desk.
+   - Destaques principais: resumo de chamados, nível de serviço, satisfação e alertas críticos.
+
+2. **Visão Operacional (Painel do Gestor)**
+   - Foco em gestão diária de chamados.
+   - Mostrar:
+     - Chamados abertos, em andamento e resolvidos
+     - Backlog e envelhecimento dos tickets
+     - Distribuição por status, prioridade, fila, cliente
+
+3. **SLA e Performance**
+   - Mostrar e explicar:
+     - Tempo Médio de Primeira Resposta (FRT)
+     - Tempo Médio de Atendimento / Resolução (AHT / Tempo de Resolução)
+     - Conformidade com SLA (percentual dentro/fora do prazo)
+     - Taxa de Escalonamento
+     - Taxa de Reabertura
+
+4. **Satisfação do Cliente**
+   - Incluir:
+     - CSAT (Taxa de Satisfação do Cliente)
+     - NPS (Net Promoter Score)
+     - CES (Customer Effort Score)
+     - Distribuição das notas de pesquisa (Altamente satisfeito, Satisfeito, Insatisfeito etc.)
+     - Segmentação por tipo de issue, equipe, canal ou produto
+
+5. **Eficiência & Custos**
+   - Mostrar:
+     - Volume de chamados por período
+     - Custo por chamado
+     - Taxa de abandono de chamadas
+     - Relação entre volume, esforço e custo
+
+6. **Análises Detalhadas (Drill-down)**
+   - Páginas que permitam:
+     - Drill-down por agente, departamento, cliente, tipo de issue, severidade e canal (e-mail, telefone, chat, WhatsApp etc.)
+     - Identificação de padrões e tendências (picos de demanda, horários críticos, sazonalidade)
+
+7. **Biblioteca de Métricas (Dicionário de KPIs)**
+   - Definir cada métrica usada nos dashboards:
+     - Nome, fórmula, objetivo, em que decisões ela ajuda.
+   - Explicar a diferença entre métricas realmente relevantes e métricas de vaidade.
+
+8. **Metodologia & Boas Práticas**
+   - Explicar:
+     - Por que evitar métricas de vaidade
+     - Perigos de excesso de gráficos e dados sem contexto
+     - Princípios de design de dashboards focados em ação
+
+9. **Sobre o BI de Help Desk**
+   - Explicar de forma institucional:
+     - Responsáveis pelo BI
+     - Competências necessárias (dados, visualização, tecnologia, estratégia)
+     - Visão de melhoria contínua
+
+Se achar necessário, pode propor outras páginas que façam sentido para o contexto de BI de Help Desk.
+
+## 3. Conteúdo de cada página
+
+Para **cada página**, faça:
+
+- Uma descrição em texto:
+  - Objetivo da página
+  - Principais perguntas que ela responde
+  - Principais decisões que o usuário pode tomar a partir desses dados
+- Uma sugestão de layout em texto (wireframe textual):
+  - O que aparece no topo (cards/KPIs)
+  - Quais gráficos aparecem (barras, linha, pizza, tabela, etc.)
+  - Exemplos de filtros (data, canal, equipe, prioridade, cliente, tipo de ticket etc.)
+- Exemplos de textos:
+  - Título da página
+  - Microcopy (legendas, dicas, explicações de métricas)
+  - Textos que orientem a ação, por exemplo:
+    - “Verifique os tickets com mais de X dias de idade”
+    - “Analise os agentes com maior taxa de reabertura”
+
+## 4. Dashboards e KPIs obrigatórios
+
+Inclua e descreva como devem aparecer no site, com exemplos:
+
+- **Gestão de Chamados**
+  - Chamados abertos / em andamento / resolvidos
+  - Tickets agendados (com prazo futuro)
+  - Distribuição por prioridade (alta, média, baixa)
+  - Backlog e envelhecimento de tickets
+
+- **Tempo & SLA**
+  - FRT – Tempo médio até a primeira resposta
+  - AHT / Tempo de Resolução
+  - Cumprimento de SLA (por cliente, por fila, por prioridade)
+  - Alertas visuais para tickets estourados ou em risco
+
+- **Qualidade & Satisfação**
+  - CSAT, NPS, CES
+  - Taxa de resolução na primeira chamada (FCR)
+  - Itens com maior índice de insatisfação (por tipo de issue, canal, agente)
+
+- **Performance Operacional**
+  - Volume de chamados por período (dia, semana, mês)
+  - Taxa de escalonamento
+  - Taxa de reabertura
+  - Distribuição por canal e por tipo de requisição
+
+- **Custo & Eficiência**
+  - Custo por chamado
+  - Taxa de abandono
+  - Correlação entre volume, esforço e custo
+
+Explique como esses indicadores devem ser apresentados de forma clara, com exemplos de gráficos e comparações (metas, variação vs. período anterior).
+
+## 5. O que NÃO deve aparecer (evitar dados desnecessários)
+
+Com base em boas práticas de BI e Help Desk, liste e explique no site (na parte de metodologia ou dicas) tipos de dados que **não valem a pena**:
+
+- Métricas de vaidade:
+  - Números que parecem bons, mas não ajudam em decisões (ex.: visitas ao portal sem conversão, contadores genéricos sem contexto).
+- Dados sem contexto acionável:
+  - Gráficos que apenas mostram “o que aconteceu”, mas não indicam possíveis ações.
+- Gráficos muito complexos ou “cheios de efeito”:
+  - 3D, muitas cores aleatórias, excesso de elementos visuais que dificultam a leitura.
+- Métricas redundantes:
+  - Vários indicadores mostrando essencialmente a mesma coisa.
+- Histórico irrelevante:
+  - Períodos antigos que não ajudam mais a entender o cenário atual ou padrões úteis.
+
+Peça para o site reforçar a ideia de que **cada métrica exibida deve ter uma ação clara associada**.
+
+## 6. Interatividade e usabilidade
+
+Defina requisitos de UX para o site:
+
+- Layout responsivo (desktop, tablet, mobile)
+- Navegação simples e direta
+- Filtros sempre visíveis ou facilmente acessíveis
+- Possibilidade de:
+  - Drill-down a partir de gráficos
+  - Exportar relatórios (PDF, Excel)
+  - Salvar visões favoritas
+
+Inclua sugestões de microinterações (por exemplo: tooltips explicando KPIs ao passar o mouse; ícones de alerta em métricas críticas).
+
+## 7. Integrações e visão técnica (em nível conceitual)
+
+Descreva, em texto, como o site deve estar preparado para integrar-se com:
+
+- Sistemas de ticketing (Jira, Zendesk, Freshdesk, ServiceNow, etc.)
+- CRMs e plataformas de comunicação (e-mail, chat, WhatsApp)
+- APIs para atualização em tempo quase real
+
+Descreva também as competências técnicas envolvidas, como se fosse uma seção de “bastidores”:
+
+- Data warehousing e modelagem de dados
+- SQL e transformação de dados
+- Uso de ferramentas de BI (Power BI, Tableau, Looker Studio, Qlik, Grafana etc.)
+- Otimização de performance de dashboards
+
+## 8. Estilo de comunicação
+
+- Linguagem: clara, objetiva, evitando jargões excessivos.
+- Público: gestores de TI, coordenadores de suporte, analistas.
+- Sempre que possível:
+  - Transformar dados em histórias (“storytelling com dados”).
+  - Orientar o usuário para a ação (não apenas descrever números).
+
+---
+
+Com base em todas essas instruções, crie:
+
+1. A **arquitetura completa do site** (menu, submenus, páginas).
+2. A **descrição detalhada de cada página** (objetivo, conteúdo, layout em texto).
+3. Exemplos de **textos reais** que apareceriam no site (títulos, parágrafos, microcopy).
+4. Sugestões de **gráficos e KPIs** em cada área, sempre com foco em tomada de decisão.
+5. Uma seção clara explicando **boas práticas e erros a evitar** em dashboards de Help Desk.
