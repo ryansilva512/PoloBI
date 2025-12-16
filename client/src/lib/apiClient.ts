@@ -5,6 +5,8 @@ import {
   paginatedResponseSchema,
 } from "@shared/schema";
 
+// Use o proxy do servidor para evitar CORS e proteger a API KEY.
+// As requisições irão para: POST /api/proxy/relatorio-atendimento/listagem
 const API_BASE_URL = "https://apiintegracao.milvus.com.br/api";
 const API_KEY = "dMHE29hFX9YUOQWFXlu0QGeft2MOQEoBS6R7UEnalEjPodSl0j0BE5krXyxGPJax9tVJz6RblIAHR5OVpblnvhQQ2WDjTZEe9GoF7";
 
