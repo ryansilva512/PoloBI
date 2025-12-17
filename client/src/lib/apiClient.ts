@@ -7,7 +7,7 @@ import {
 
 // Use o proxy do servidor para evitar CORS e proteger a API KEY.
 // As requisições irão para: POST /api/proxy/relatorio-atendimento/listagem
-const API_BASE_URL = "https://apiintegracao.milvus.com.br/api";
+const API_BASE_URL = "/api/proxy";
 const API_KEY = "dMHE29hFX9YUOQWFXlu0QGeft2MOQEoBS6R7UEnalEjPodSl0j0BE5krXyxGPJax9tVJz6RblIAHR5OVpblnvhQQ2WDjTZEe9GoF7";
 
 class MilvusApiClient {
@@ -38,6 +38,14 @@ class MilvusApiClient {
       }
 
       const data = await response.json();
+      console.log(`API Response [${endpoint}]:`, {
+        statusCode: response.status,
+        dataType: typeof data,
+        hasLista: !!data?.lista,
+        listaLength: data?.lista?.length,
+        hasMeta: !!data?.meta,
+        firstItem: data?.lista?.[0]
+      });
       return data;
     } catch (error) {
       console.error(`API Request Failed [${endpoint}]:`, error);
@@ -80,7 +88,18 @@ class MilvusApiClient {
     );
 
     // Validate response structure
-    return paginatedResponseSchema.parse(response);
+    try {
+      const validated = paginatedResponseSchema.parse(response);
+      console.log("Validação Zod bem-sucedida:", {
+        total: validated.meta.total,
+        listaLength: validated.lista.length
+      });
+      return validated;
+    } catch (error) {
+      console.error("Erro de validação Zod:", error);
+      console.log("Dados recebidos:", response);
+      throw error;
+    }
   }
 
   /**

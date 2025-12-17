@@ -13,7 +13,13 @@ export const useTicketsData = (
       const data = await (loadAllPages
         ? apiClient.getTicketsAllPages(filters || {})
         : apiClient.getTickets(filters || {}));
-      console.log("useTicketsData - Data received:", data);
+      console.log("useTicketsData - Data received:", {
+        hasMeta: !!data?.meta,
+        hasLista: !!data?.lista,
+        listaLength: data?.lista?.length,
+        firstItem: data?.lista?.[0],
+        fullData: data
+      });
       return data;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes

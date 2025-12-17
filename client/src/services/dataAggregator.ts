@@ -28,12 +28,36 @@ interface DashboardMetrics {
 }
 
 /**
- * Converte string de tempo "HH:MM:SS" para minutos totais
+ * Converte string de tempo ("HH:MM:SS" ou "HH:MM") para minutos totais.
+ * A API da Milvus em alguns campos retorna apenas horas e minutos,
+ * então tratamos ambos os formatos e valores nulos.
  */
-export const horaStringToMinutos = (horaStr: string): number => {
-  if (!horaStr || horaStr === "00:00:00") return 0;
-  const [horas, minutos, segundos] = horaStr.split(":").map(Number);
-  return horas * 60 + minutos + segundos / 60;
+export const horaStringToMinutos = (horaStr?: string | null): number => {
+  if (!horaStr) return 0;
+
+  const sanitized = horaStr.trim();
+  if (!sanitized) return 0;
+
+  const parts = sanitized.split(":").map((value) => Number(value));
+  if (parts.some((value) => Number.isNaN(value))) {
+    return 0;
+  }
+
+  if (parts.length === 3) {
+    const [horas, minutos, segundos] = parts;
+    return horas * 60 + minutos + segundos / 60;
+  }
+
+  if (parts.length === 2) {
+    const [horas, minutos] = parts;
+    return horas * 60 + minutos;
+  }
+
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  return 0;
 };
 
 /**
