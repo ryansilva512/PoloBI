@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
-import { subDays, format } from "date-fns";
+import { subDays, format, startOfDay, endOfDay } from "date-fns";
 import { TicketFilters } from "@shared/schema";
 
 interface FilterContextType {
@@ -12,8 +12,8 @@ interface FilterContextType {
 const FilterContext = createContext<FilterContextType | undefined>(undefined);
 
 const DEFAULT_FILTERS: TicketFilters = {
-  data_inicial: format(subDays(new Date(), 30), "yyyy-MM-dd"),
-  data_final: format(new Date(), "yyyy-MM-dd"),
+  data_inicial: format(startOfDay(subDays(new Date(), 30)), "yyyy-MM-dd HH:mm:ss"),
+  data_final: format(endOfDay(new Date()), "yyyy-MM-dd HH:mm:ss"),
 };
 
 export const FilterProvider: React.FC<{ children: React.ReactNode }> = ({

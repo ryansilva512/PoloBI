@@ -17,18 +17,38 @@ export default function Satisfacao() {
 
   const { data: summary, isLoading: loadingSummary } = useQuery<DashboardSummary>({
     queryKey: [`/api/dashboard/summary?periodo=${filtros.periodo}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/summary?periodo=${filtros.periodo}`);
+      if (!res.ok) throw new Error("Failed to fetch summary");
+      return res.json();
+    },
   });
 
   const { data: csatDist, isLoading: loadingCSAT } = useQuery<SatisfactionResponse[]>({
     queryKey: ["/api/dashboard/csat-distribuicao"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/csat-distribuicao");
+      if (!res.ok) throw new Error("Failed to fetch CSAT distribution");
+      return res.json();
+    },
   });
 
   const { data: csatTrend, isLoading: loadingTrend } = useQuery<TimeSeriesPoint[]>({
     queryKey: [`/api/dashboard/csat-tendencia?periodo=${filtros.periodo}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/csat-tendencia?periodo=${filtros.periodo}`);
+      if (!res.ok) throw new Error("Failed to fetch CSAT trend");
+      return res.json();
+    },
   });
 
   const { data: npsTrend, isLoading: loadingNPS } = useQuery<TimeSeriesPoint[]>({
     queryKey: [`/api/dashboard/nps-tendencia?periodo=${filtros.periodo}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/nps-tendencia?periodo=${filtros.periodo}`);
+      if (!res.ok) throw new Error("Failed to fetch NPS trend");
+      return res.json();
+    },
   });
 
   const csatDonutData = csatDist?.map((c) => ({

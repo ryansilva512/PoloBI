@@ -21,14 +21,29 @@ export default function Analises() {
 
   const { data: agentes, isLoading: loadingAgentes } = useQuery<Agent[]>({
     queryKey: ["/api/agentes"],
+    queryFn: async () => {
+      const res = await fetch("/api/agentes");
+      if (!res.ok) throw new Error("Failed to fetch agentes");
+      return res.json();
+    },
   });
 
   const { data: departamentos, isLoading: loadingDept } = useQuery<DepartmentPerformance[]>({
     queryKey: ["/api/dashboard/departamento-performance"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/departamento-performance");
+      if (!res.ok) throw new Error("Failed to fetch departamento-performance");
+      return res.json();
+    },
   });
 
   const { data: canais, isLoading: loadingCanais } = useQuery<ChannelDistribution[]>({
     queryKey: ["/api/dashboard/canal-distribuicao"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/canal-distribuicao");
+      if (!res.ok) throw new Error("Failed to fetch canal-distribuicao");
+      return res.json();
+    },
   });
 
   const agenteColumns: Column<Agent>[] = [

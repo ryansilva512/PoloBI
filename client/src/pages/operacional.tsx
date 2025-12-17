@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { format, subDays, startOfDay, endOfDay, parseISO, parse, isValid, isSameDay, differenceInCalendarDays } from "date-fns";
 import { useFilters } from "@/context/FilterContext";
 import { useTicketsData } from "@/hooks/api/useTicketsData";
 import { aggregateTicketData, calculateSLADistribution, minutosToHoraString } from "@/services/dataAggregator";
@@ -9,24 +10,77 @@ import { DataTable, type Column } from "@/components/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Ticket, Users, AlertTriangle } from "lucide-react";
 import type { TicketRaw } from "@shared/schema";
 
+const DATE_PRESETS = [
+  { label: "Hoje", days: 0 },
+  { label: "7 dias", days: 7 },
+  { label: "15 dias", days: 15 },
+  { label: "30 dias", days: 30 },
+] as const;
+
+const DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
+
+const normalizeName = (value?: string | null) => (value ?? "").trim().toLowerCase();
+
+const parseDateSafely = (value?: string | null) => {
+  if (!value) return null;
+
+  const parsers = [
+    () => parseISO(value),
+    () => parse(value, DATE_FORMAT, new Date()),
+    () => parse(value, "yyyy-MM-dd", new Date()),
+    () => parse(value, "dd/MM/yyyy HH:mm:ss", new Date()),
+    () => parse(value, "dd/MM/yyyy", new Date()),
+  ];
+
+  for (const tryParse of parsers) {
+    try {
+      const parsed = tryParse();
+      if (isValid(parsed)) return parsed;
+    } catch (err) {
+      // ignore and try next format
+    }
+  }
+  return null;
+};
+
 export default function Operacional() {
-  const { filters } = useFilters();
+  const { filters, updateFilters, updateFilter } = useFilters();
   const { data: ticketsResponse, isLoading } = useTicketsData(filters, true);
   const [searchTerm, setSearchTerm] = useState("");
 
+  const ticketsFiltrados = useMemo(() => {
+    if (!ticketsResponse?.lista) return [];
+
+    const start = parseDateSafely(filters.data_inicial);
+    const end = parseDateSafely(filters.data_final);
+    const filtroAnalista = normalizeName(filters.analista);
+
+    return ticketsResponse.lista.filter((ticket) => {
+      const dataRef = ticket.data_criacao || ticket.data_inicial || ticket.data_final;
+      const dataTicket = parseDateSafely(dataRef);
+      const operador = normalizeName(ticket.nome);
+
+      if (filtroAnalista && operador !== filtroAnalista) return false;
+      if (start && dataTicket && dataTicket < start) return false;
+      if (end && dataTicket && dataTicket > end) return false;
+      return true;
+    });
+  }, [ticketsResponse?.lista, filters]);
+
   const aggregatedData = useMemo(() => {
-    if (!ticketsResponse?.lista) return null;
-    return aggregateTicketData(ticketsResponse.lista);
-  }, [ticketsResponse]);
+    if (!ticketsFiltrados.length) return null;
+    return aggregateTicketData(ticketsFiltrados);
+  }, [ticketsFiltrados]);
 
   const slaData = useMemo(() => {
-    if (!ticketsResponse?.lista) return null;
-    return calculateSLADistribution(ticketsResponse.lista);
-  }, [ticketsResponse]);
+    if (!ticketsFiltrados.length) return null;
+    return calculateSLADistribution(ticketsFiltrados);
+  }, [ticketsFiltrados]);
 
   const filteredOperadores = useMemo(() => {
     if (!aggregatedData?.operadorMetrics) return [];
@@ -36,16 +90,55 @@ export default function Operacional() {
     );
   }, [aggregatedData?.operadorMetrics, searchTerm]);
 
-  const filteredTickets = useMemo(() => {
+  const operadoresDisponiveis = useMemo(() => {
     if (!ticketsResponse?.lista) return [];
-    if (!searchTerm) return ticketsResponse.lista;
-    return ticketsResponse.lista.filter(
+    const unique = new Set<string>();
+    ticketsResponse.lista.forEach((ticket) => {
+      if (ticket.nome) unique.add(ticket.nome);
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [ticketsResponse?.lista]);
+
+  const handlePresetClick = (days: number) => {
+    const now = new Date();
+    const start = days === 0 ? startOfDay(now) : startOfDay(subDays(now, days));
+    const end = endOfDay(now);
+    updateFilters({
+      data_inicial: format(start, DATE_FORMAT),
+      data_final: format(end, DATE_FORMAT),
+    });
+  };
+
+  const isPresetActive = (days: number) => {
+    const start = parseDateSafely(filters.data_inicial);
+    const end = parseDateSafely(filters.data_final);
+    if (!start || !end) return false;
+
+    const today = new Date();
+    if (!isSameDay(end, today)) return false;
+
+    const expectedStart = days === 0 ? startOfDay(today) : startOfDay(subDays(today, days));
+    return differenceInCalendarDays(startOfDay(start), expectedStart) === 0;
+  };
+
+  const handleOperatorFilter = (nome?: string) => {
+    if (!nome || filters.analista === nome) {
+      updateFilter("analista", undefined);
+    } else {
+      updateFilter("analista", nome);
+    }
+  };
+
+  const filteredTickets = useMemo(() => {
+    if (!ticketsFiltrados.length) return [];
+    if (!searchTerm) return ticketsFiltrados;
+    return ticketsFiltrados.filter(
       (ticket: TicketRaw) =>
         ticket.assunto.toLowerCase().includes(searchTerm.toLowerCase()) ||
         ticket.codigo.toString().includes(searchTerm) ||
         ticket.nome.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [ticketsResponse?.lista, searchTerm]);
+  }, [ticketsFiltrados, searchTerm]);
 
   const operadorColumns: Column<any>[] = [
     {
@@ -193,6 +286,54 @@ export default function Operacional() {
         titulo="Operacional"
         subtitulo="Painel de operadores e gestão de tickets em tempo real"
       />
+
+      {/* Filtros rápidos */}
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col gap-4 py-4">
+          <div>
+            <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+              Período rápido
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {DATE_PRESETS.map((preset) => (
+                <Button
+                  key={preset.label}
+                  size="sm"
+                  variant={isPresetActive(preset.days) ? "default" : "outline"}
+                  onClick={() => handlePresetClick(preset.days)}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+              Operadores
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant={!filters.analista ? "default" : "outline"}
+                onClick={() => handleOperatorFilter()}
+              >
+                Todos
+              </Button>
+              {operadoresDisponiveis.map((operador) => (
+                <Button
+                  key={operador}
+                  size="sm"
+                  variant={filters.analista === operador ? "default" : "secondary"}
+                  onClick={() => handleOperatorFilter(operador)}
+                >
+                  {operador}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
