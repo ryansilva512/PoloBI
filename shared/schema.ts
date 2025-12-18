@@ -14,7 +14,8 @@ export const mesaTrabalhoSchema = z.object({
 
 // Tipo de chamado
 export const tipoChamadoSchema = z.object({
-  id: z.number(),
+  // API pode retornar null em alguns registros
+  id: z.number().nullable(),
   text: z.string(), // "Alterações", "Incidente", etc
 });
 
