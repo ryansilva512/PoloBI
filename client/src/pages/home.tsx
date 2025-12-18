@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useFilters } from "@/context/FilterContext";
 import { useTicketsData } from "@/hooks/api/useTicketsData";
-import { format, parseISO, isValid, startOfDay, endOfDay } from "date-fns";
+import { format, parseISO, isValid, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
 import {
   aggregateTicketData,
   calculateSLADistribution,
@@ -71,8 +71,8 @@ const parseDateRangeDias = (dataInicial?: string, dataFinal?: string) => {
   const inicio = new Date(dataInicial.replace(" ", "T"));
   const fim = new Date(dataFinal.replace(" ", "T"));
   if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) return 30;
-  const diffMs = Math.max(fim.getTime() - inicio.getTime(), 0);
-  const dias = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  // Conta dias de forma inclusiva (mesmo dia = 1)
+  const dias = differenceInCalendarDays(endOfDay(fim), startOfDay(inicio)) + 1;
   return Math.max(dias, 1);
 };
 
@@ -94,6 +94,9 @@ export default function Home() {
   const ticketsFiltrados = useMemo(() => {
     if (!tickets.length) return [];
 
+    const dedupKey = (ticket: typeof tickets[0]) =>
+      ticket.codigo ?? ticket.id ?? `${ticket.id}-${ticket.codigo}`;
+
     const dentroDoPeriodo = tickets.filter((ticket) => {
       const dataRef = ticket.data_criacao || ticket.data_inicial || ticket.data_final;
       const dataTicket = parseDateSafely(dataRef);
@@ -102,15 +105,69 @@ export default function Home() {
       return true;
     });
 
-    // Deduplicacao apos o filtro de data para manter apenas chamados do intervalo selecionado
+    // Deduplicacao apos o filtro de data para manter apenas chamados do intervalo selecionado.
+    // Quando existem multiplos registros do mesmo codigo, mantemos o mais recente.
     const map = new Map<number | string, typeof tickets[0]>();
     dentroDoPeriodo.forEach((t) => {
-      const key = t.codigo ?? t.id;
-      if (!map.has(key)) map.set(key, t);
+      const key = dedupKey(t);
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, t);
+        return;
+      }
+
+      const refDate = (ticket: typeof tickets[0]) =>
+        parseDateSafely(ticket.data_final) ||
+        parseDateSafely(ticket.data_inicial) ||
+        parseDateSafely(ticket.data_criacao);
+
+      const newDate = refDate(t)?.getTime() || -Infinity;
+      const oldDate = refDate(existing)?.getTime() || -Infinity;
+
+      if (newDate >= oldDate) {
+        map.set(key, t);
+      }
     });
 
     return Array.from(map.values());
   }, [tickets, dataInicialDate, dataFinalDate]);
+
+  // Helpers para diffs baseados em datas
+  const diffsRespostaMin = useMemo(() => {
+    return ticketsFiltrados
+      .map((ticket) => {
+        const criacao = parseDateSafely(ticket.data_criacao);
+        const inicio = parseDateSafely(ticket.data_inicial);
+        if (!criacao || !inicio) return null;
+        const diffMs = inicio.getTime() - criacao.getTime();
+        if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+        return diffMs / (1000 * 60);
+      })
+      .filter((v): v is number => v !== null);
+  }, [ticketsFiltrados]);
+
+  const diffsAtendimentoMin = useMemo(() => {
+    return ticketsFiltrados
+      .map((ticket) => {
+        const inicio = parseDateSafely(ticket.data_inicial);
+        const fim =
+          parseDateSafely(ticket.data_final) ||
+          parseDateSafely((ticket as any).data_solucao) ||
+          parseDateSafely(ticket.data_final);
+        if (!inicio || !fim) return null;
+        const diffMs = fim.getTime() - inicio.getTime();
+        if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+        return diffMs / (1000 * 60);
+      })
+      .filter((v): v is number => v !== null);
+  }, [ticketsFiltrados]);
+
+  const calcularMediaCap = (valores: number[], capMinutos: number) => {
+    const filtrados = valores.filter((v) => v <= capMinutos);
+    if (!filtrados.length) return { media: 0, considerados: 0, total: valores.length };
+    const soma = filtrados.reduce((a, b) => a + b, 0);
+    return { media: soma / filtrados.length, considerados: filtrados.length, total: valores.length };
+  };
 
   const aggregatedData = useMemo(() => {
     if (!ticketsFiltrados.length) return null;
@@ -122,35 +179,17 @@ export default function Home() {
     return calculateSLADistribution(ticketsFiltrados);
   }, [ticketsFiltrados]);
 
+  // Tempo médio de abertura/resposta (data_inicial - data_criacao) com cap de 3h
   const tempoMedioAbertura = useMemo(() => {
-    if (!ticketsFiltrados.length) {
-      return { minutos: 0, total: 0 };
-    }
-
-    let totalMinutos = 0;
-    let count = 0;
-
-    ticketsFiltrados.forEach((ticket) => {
-      const criacao = parseDateSafely(ticket.data_criacao);
-      const inicio = parseDateSafely(ticket.data_inicial);
-
-      if (!criacao || !inicio) return;
-
-      const diffMs = inicio.getTime() - criacao.getTime();
-      if (!Number.isFinite(diffMs) || diffMs < 0) return;
-
-      totalMinutos += diffMs / (1000 * 60);
-      count += 1;
-    });
-
-    return {
-      minutos: count ? totalMinutos / count : 0,
-      total: count,
-    };
-  }, [ticketsFiltrados]);
+    if (!diffsRespostaMin.length) return { minutos: 0, total: 0, considerados: 0 };
+    const { media, considerados, total } = calcularMediaCap(diffsRespostaMin, 180); // cap 3h
+    return { minutos: media, total, considerados };
+  }, [diffsRespostaMin]);
 
   const tempoRespostaPorOperador = useMemo(() => {
     if (!ticketsFiltrados.length) return [];
+
+    const capMinutos = 180; // cap em 3h para evitar distorÇõÇœes
 
     const map = new Map<
       string,
@@ -169,7 +208,7 @@ export default function Home() {
       const diffMs = inicio.getTime() - criacao.getTime();
       if (!Number.isFinite(diffMs) || diffMs < 0) return;
 
-      const minutos = diffMs / (1000 * 60);
+      const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
       const nome = ticket.nome;
 
       if (!map.has(nome)) {
@@ -208,53 +247,29 @@ export default function Home() {
       };
     }
 
-    let somaResp = 0;
-    let somaAtend = 0;
-    let contResp = 0;
-    let contAtend = 0;
-    let emDiaResp = 0;
-    let estouradaResp = 0;
-    let emDiaAtend = 0;
-    let expiradoAtend = 0;
+    // Resposta (data_inicial - data_criacao)
+    const respValid = diffsRespostaMin;
+    const respEmDia = respValid.filter((m) => m <= META_RESPOSTA_MINUTOS).length;
+    const respEstourada = respValid.filter((m) => m > META_RESPOSTA_MINUTOS).length;
+    const respMedia = calcularMediaCap(respValid, 180).media; // cap 3h
 
-    ticketsFiltrados.forEach((ticket) => {
-      const minutosResp = horaStringToMinutos(ticket.horas_operador);
-      const minutosAtend =
-        horaStringToMinutos(ticket.total_horas_atendimento) ||
-        horaStringToMinutos(ticket.horas_ticket);
-
-      if (minutosResp > 0) {
-        somaResp += minutosResp;
-        contResp += 1;
-        if (minutosResp <= META_RESPOSTA_MINUTOS) {
-          emDiaResp += 1;
-        } else {
-          estouradaResp += 1;
-        }
-      }
-
-      if (minutosAtend > 0) {
-        somaAtend += minutosAtend;
-        contAtend += 1;
-        if (minutosAtend <= META_ATENDIMENTO_HORAS * 60) {
-          emDiaAtend += 1;
-        } else {
-          expiradoAtend += 1;
-        }
-      }
-    });
+    // Atendimento (data_final - data_inicial)
+    const atendValid = diffsAtendimentoMin;
+    const atendEmDia = atendValid.filter((m) => m <= META_ATENDIMENTO_HORAS * 60).length;
+    const atendExpirado = atendValid.filter((m) => m > META_ATENDIMENTO_HORAS * 60).length;
+    const atendMedia = calcularMediaCap(atendValid, 480).media; // cap 8h
 
     return {
-      tempoMedioResposta: contResp ? somaResp / contResp : 0,
-      tempoMedioAtendimento: contAtend ? somaAtend / contAtend : 0,
-      respostaEmDia: emDiaResp,
-      respostaEstourada: estouradaResp,
-      atendimentoEmDia: emDiaAtend,
-      atendimentoExpirado: expiradoAtend,
-      totalRespMedida: contResp,
-      totalAtendMedida: contAtend,
+      tempoMedioResposta: respMedia,
+      tempoMedioAtendimento: atendMedia,
+      respostaEmDia: respEmDia,
+      respostaEstourada: respEstourada,
+      atendimentoEmDia: atendEmDia,
+      atendimentoExpirado: atendExpirado,
+      totalRespMedida: respValid.length,
+      totalAtendMedida: atendValid.length,
     };
-  }, [ticketsFiltrados]);
+  }, [ticketsFiltrados, diffsRespostaMin, diffsAtendimentoMin]);
 
   const conformidadePercentual =
     slaData && tickets.length
@@ -263,12 +278,60 @@ export default function Home() {
 
   const mediaEstimadaNotas = Number(((conformidadePercentual / 100) * 5).toFixed(1));
 
-  const operadoresPorAtendimento =
-    aggregatedData?.operadorMetrics
-      .slice()
-      .sort(
-        (a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos
-      ) ?? [];
+  const operadoresPorAtendimento = useMemo(() => {
+    if (!ticketsFiltrados.length) return [];
+    const capMinutos = 480; // cap 8h
+    const map = new Map<
+      string,
+      {
+        totalMinutos: number;
+        count: number;
+      }
+    >();
+
+    ticketsFiltrados.forEach((ticket) => {
+      const inicio = parseDateSafely(ticket.data_inicial);
+      const fim =
+        parseDateSafely(ticket.data_final) ||
+        parseDateSafely((ticket as any).data_solucao);
+      if (!inicio || !fim) return;
+      const diffMs = fim.getTime() - inicio.getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return;
+      const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
+      const nome = ticket.nome;
+
+      if (!map.has(nome)) {
+        map.set(nome, { totalMinutos: 0, count: 0 });
+      }
+      const data = map.get(nome)!;
+      data.totalMinutos += minutos;
+      data.count += 1;
+    });
+
+    return Array.from(map.entries())
+      .map(([nome, data]) => ({
+        nome,
+        tempoMedioAtendimentoMinutos: data.count ? data.totalMinutos / data.count : 0,
+      }))
+      .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
+  }, [ticketsFiltrados]);
+
+  const rankingOperadores = useMemo(() => {
+    if (!ticketsFiltrados.length) return [];
+    const map = new Map<string, number>();
+    ticketsFiltrados.forEach((ticket) => {
+      const nome = ticket.nome || "Sem nome";
+      map.set(nome, (map.get(nome) || 0) + 1);
+    });
+    const periodoDias = parseDateRangeDias(filters.data_inicial, filters.data_final);
+    return Array.from(map.entries())
+      .map(([nome, total]) => ({
+        nome,
+        total,
+        mediaDiaria: periodoDias > 0 ? total / periodoDias : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [ticketsFiltrados, filters.data_inicial, filters.data_final]);
 
   const handleDateChange = (type: "start" | "end", value: string) => {
     if (!value) {
@@ -601,11 +664,9 @@ export default function Home() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {aggregatedData.operadorMetrics.map((op) => {
+                {rankingOperadores.map((op) => {
                   const mediaDiaria =
-                    periodoDias > 0
-                      ? (op.ticketsResolvidos / periodoDias).toFixed(2)
-                      : "0.00";
+                    periodoDias > 0 ? op.mediaDiaria.toFixed(2) : "0.00";
                   return (
                     <TableRow key={op.nome}>
                       <TableCell className="font-medium">{op.nome}</TableCell>
@@ -617,7 +678,7 @@ export default function Home() {
                         </Avatar>
                       </TableCell>
                       <TableCell className="font-mono text-sm">
-                        {op.ticketsResolvidos}
+                        {op.total}
                       </TableCell>
                       <TableCell className="font-mono text-sm">{mediaDiaria}</TableCell>
                     </TableRow>
@@ -631,4 +692,3 @@ export default function Home() {
     </div>
   );
 }
-
