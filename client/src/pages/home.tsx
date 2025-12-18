@@ -82,16 +82,6 @@ export default function Home() {
 
   const tickets = ticketsResponse?.lista ?? [];
 
-  const ticketsUnicos = useMemo(() => {
-    if (!tickets.length) return [];
-    const map = new Map<number | string, typeof tickets[0]>();
-    tickets.forEach((t) => {
-      const key = t.codigo ?? t.id;
-      if (!map.has(key)) map.set(key, t);
-    });
-    return Array.from(map.values());
-  }, [tickets]);
-
   const dataInicialDate = useMemo(
     () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
     [filters.data_inicial]
@@ -102,15 +92,25 @@ export default function Home() {
   );
 
   const ticketsFiltrados = useMemo(() => {
-    if (!ticketsUnicos.length) return [];
-    return ticketsUnicos.filter((ticket) => {
+    if (!tickets.length) return [];
+
+    const dentroDoPeriodo = tickets.filter((ticket) => {
       const dataRef = ticket.data_criacao || ticket.data_inicial || ticket.data_final;
       const dataTicket = parseDateSafely(dataRef);
       if (dataInicialDate && dataTicket && dataTicket < dataInicialDate) return false;
       if (dataFinalDate && dataTicket && dataTicket > dataFinalDate) return false;
       return true;
     });
-  }, [ticketsUnicos, dataInicialDate, dataFinalDate]);
+
+    // Deduplicacao apos o filtro de data para manter apenas chamados do intervalo selecionado
+    const map = new Map<number | string, typeof tickets[0]>();
+    dentroDoPeriodo.forEach((t) => {
+      const key = t.codigo ?? t.id;
+      if (!map.has(key)) map.set(key, t);
+    });
+
+    return Array.from(map.values());
+  }, [tickets, dataInicialDate, dataFinalDate]);
 
   const aggregatedData = useMemo(() => {
     if (!ticketsFiltrados.length) return null;
@@ -120,6 +120,73 @@ export default function Home() {
   const slaData = useMemo(() => {
     if (!ticketsFiltrados.length) return null;
     return calculateSLADistribution(ticketsFiltrados);
+  }, [ticketsFiltrados]);
+
+  const tempoMedioAbertura = useMemo(() => {
+    if (!ticketsFiltrados.length) {
+      return { minutos: 0, total: 0 };
+    }
+
+    let totalMinutos = 0;
+    let count = 0;
+
+    ticketsFiltrados.forEach((ticket) => {
+      const criacao = parseDateSafely(ticket.data_criacao);
+      const inicio = parseDateSafely(ticket.data_inicial);
+
+      if (!criacao || !inicio) return;
+
+      const diffMs = inicio.getTime() - criacao.getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return;
+
+      totalMinutos += diffMs / (1000 * 60);
+      count += 1;
+    });
+
+    return {
+      minutos: count ? totalMinutos / count : 0,
+      total: count,
+    };
+  }, [ticketsFiltrados]);
+
+  const tempoRespostaPorOperador = useMemo(() => {
+    if (!ticketsFiltrados.length) return [];
+
+    const map = new Map<
+      string,
+      {
+        totalMinutos: number;
+        count: number;
+      }
+    >();
+
+    ticketsFiltrados.forEach((ticket) => {
+      const criacao = parseDateSafely(ticket.data_criacao);
+      const inicio = parseDateSafely(ticket.data_inicial);
+
+      if (!criacao || !inicio) return;
+
+      const diffMs = inicio.getTime() - criacao.getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return;
+
+      const minutos = diffMs / (1000 * 60);
+      const nome = ticket.nome;
+
+      if (!map.has(nome)) {
+        map.set(nome, { totalMinutos: 0, count: 0 });
+      }
+
+      const data = map.get(nome)!;
+      data.totalMinutos += minutos;
+      data.count += 1;
+    });
+
+    return Array.from(map.entries())
+      .map(([nome, data]) => ({
+        nome,
+        tempoMedioMinutos: data.count ? data.totalMinutos / data.count : 0,
+      }))
+      .sort((a, b) => b.tempoMedioMinutos - a.tempoMedioMinutos);
   }, [ticketsFiltrados]);
 
   const periodoDias = useMemo(
@@ -195,11 +262,6 @@ export default function Home() {
       : 0;
 
   const mediaEstimadaNotas = Number(((conformidadePercentual / 100) * 5).toFixed(1));
-
-  const operadoresPorResposta =
-    aggregatedData?.operadorMetrics
-      .slice()
-      .sort((a, b) => b.tempoMedioRespostaMinutos - a.tempoMedioRespostaMinutos) ?? [];
 
   const operadoresPorAtendimento =
     aggregatedData?.operadorMetrics
@@ -323,6 +385,8 @@ export default function Home() {
     );
   };
 
+  const tempoMedioRespostaGlobal = tempoMedioAbertura.minutos;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -406,21 +470,21 @@ export default function Home() {
           <CardContent className="space-y-3">
             <div className="text-sm text-muted-foreground">
               Meta: {formatMinutosCompleto(META_RESPOSTA_MINUTOS)} • Atual:{" "}
-              {formatMinutosCompleto(tempoMetrics.tempoMedioResposta)}
+              {formatMinutosCompleto(tempoMedioRespostaGlobal)}
             </div>
             <div className="space-y-2">
-              {operadoresPorResposta.length === 0 && (
+              {tempoRespostaPorOperador.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
-              {operadoresPorResposta.slice(0, 8).map((op) => {
-                const maxValor = operadoresPorResposta[0]?.tempoMedioRespostaMinutos || 1;
-                const value = maxValor ? (op.tempoMedioRespostaMinutos / maxValor) * 100 : 0;
+              {tempoRespostaPorOperador.slice(0, 8).map((op) => {
+                const maxValor = tempoRespostaPorOperador[0]?.tempoMedioMinutos || 1;
+                const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
                 return (
                   <div key={op.nome} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{op.nome}</span>
                       <span className="font-mono text-xs text-muted-foreground">
-                        {formatMinutosCompleto(op.tempoMedioRespostaMinutos)}
+                        {formatMinutosCompleto(op.tempoMedioMinutos)}
                       </span>
                     </div>
                     <Progress value={value} className="h-2" />
@@ -500,7 +564,7 @@ export default function Home() {
             </CardHeader>
             <CardContent className="space-y-1">
               <div className="text-3xl font-mono font-bold">
-                {formatMinutosCompleto(tempoMetrics.tempoMedioResposta)}
+                {formatMinutosCompleto(tempoMedioAbertura.minutos)}
               </div>
               <p className="text-sm text-muted-foreground">Tempo médio de abertura</p>
             </CardContent>
@@ -567,3 +631,4 @@ export default function Home() {
     </div>
   );
 }
+

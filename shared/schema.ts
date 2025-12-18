@@ -97,7 +97,9 @@ export const ticketFiltersSchema = z.object({
   analista: z.string().optional(),
   mesa_trabalho: z.string().optional(),
   pagina: z.number().optional(),
+  page: z.number().optional(),       // alias usado por algumas APIs
   limit: z.number().optional(),
+  per_page: z.number().optional(),   // alias de paginação
 });
 export type TicketFilters = z.infer<typeof ticketFiltersSchema>;
 

@@ -63,15 +63,20 @@ class MilvusApiClient {
     analista?: string;
     mesa_trabalho?: string;
     pagina?: number;
+    page?: number;
     limit?: number;
+    per_page?: number;
   }): Promise<PaginatedTicketResponse> {
     const payload = {
       data_inicial: filters.data_inicial,
       data_final: filters.data_final,
       analista: filters.analista,
       mesa_trabalho: filters.mesa_trabalho,
-      pagina: filters.pagina || 1,
-      limit: filters.limit || 500,
+      // a API aceita tanto "pagina" quanto "page"/"per_page" em algumas variaÇõÇæes
+      pagina: filters.pagina || filters.page || 1,
+      page: filters.pagina || filters.page || 1,
+      limit: filters.limit || filters.per_page || 500,
+      per_page: filters.limit || filters.per_page || 500,
     };
 
     // Remove undefined values
@@ -111,8 +116,10 @@ class MilvusApiClient {
     analista?: string;
     mesa_trabalho?: string;
     limit?: number;
+    per_page?: number;
   }): Promise<PaginatedTicketResponse> {
-    return this.getTickets({ ...filters, pagina: 1, limit: filters.limit || 500 });
+    const pageSize = filters.limit || filters.per_page || 500;
+    return this.getTickets({ ...filters, pagina: 1, page: 1, limit: pageSize, per_page: pageSize });
   }
 
 }
