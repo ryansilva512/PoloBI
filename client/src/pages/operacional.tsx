@@ -77,10 +77,27 @@ export default function Operacional() {
     });
 
     // Deduplicacao apos aplicar o filtro de datas/analista para manter apenas chamados do intervalo
+    const refDate = (ticket: TicketRaw) =>
+      parseDateSafely(ticket.data_final) ||
+      parseDateSafely(ticket.data_inicial) ||
+      parseDateSafely(ticket.data_criacao);
+
+    const dedupKey = (ticket: TicketRaw) =>
+      ticket.codigo ?? ticket.id ?? `${ticket.id}-${ticket.codigo}`;
+
     const map = new Map<number | string, TicketRaw>();
     dentroPeriodo.forEach((ticket) => {
-      const key = ticket.id ?? ticket.codigo;
-      if (!map.has(key)) {
+      const key = dedupKey(ticket);
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, ticket);
+        return;
+      }
+
+      const newDate = refDate(ticket)?.getTime() || -Infinity;
+      const oldDate = refDate(existing)?.getTime() || -Infinity;
+
+      if (newDate >= oldDate) {
         map.set(key, ticket);
       }
     });
@@ -90,28 +107,34 @@ export default function Operacional() {
 
   const tempoMedioAbertura = useMemo(() => {
     if (!ticketsFiltrados.length) {
-      return { minutos: null as number | null, total: 0 };
+      return { minutos: null as number | null, total: 0, considerados: 0 };
     }
 
-    let totalMinutos = 0;
-    let count = 0;
+    const duracoesMin = ticketsFiltrados
+      .map((ticket) => {
+        const dataCriacao = parseDateSafely(ticket.data_criacao);
+        const dataInicial = parseDateSafely(ticket.data_inicial);
+        if (!dataCriacao || !dataInicial) return null;
+        const diffMs = dataInicial.getTime() - dataCriacao.getTime();
+        if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+        return diffMs / (1000 * 60);
+      })
+      .filter((v): v is number => v !== null)
+      .sort((a, b) => a - b);
 
-    ticketsFiltrados.forEach((ticket) => {
-      const dataCriacao = parseDateSafely(ticket.data_criacao);
-      const dataInicial = parseDateSafely(ticket.data_inicial);
+    if (!duracoesMin.length) return { minutos: null, total: 0, considerados: 0 };
 
-      if (!dataCriacao || !dataInicial) return;
+    const semOutlier = duracoesMin.filter((v) => v <= 24 * 60); // remove valores acima de 24h
+    const trim = Math.floor(semOutlier.length * 0.05); // descarta top 5%
+    const base =
+      semOutlier.length > trim ? semOutlier.slice(0, semOutlier.length - trim) : semOutlier;
 
-      const diffMs = dataInicial.getTime() - dataCriacao.getTime();
-      if (!Number.isFinite(diffMs) || diffMs < 0) return;
-
-      totalMinutos += diffMs / (1000 * 60);
-      count += 1;
-    });
-
-    if (!count) return { minutos: null, total: 0 };
-
-    return { minutos: totalMinutos / count, total: count };
+    const soma = base.reduce((a, b) => a + b, 0);
+    return {
+      minutos: base.length ? soma / base.length : null,
+      total: duracoesMin.length,
+      considerados: base.length,
+    };
   }, [ticketsFiltrados]);
 
   const aggregatedData = useMemo(() => {
@@ -430,7 +453,7 @@ export default function Operacional() {
           destaque="neutral"
           tooltip={
             tempoMedioAbertura.total
-              ? `Media entre data_criacao e data_inicial (${tempoMedioAbertura.total} tickets validos).`
+              ? `Media entre data_criacao e data_inicial com outliers removidos (${tempoMedioAbertura.considerados}/${tempoMedioAbertura.total} tickets).`
               : "Media entre data_criacao e data_inicial dos chamados com datas validas."
           }
         />
@@ -505,4 +528,3 @@ export default function Operacional() {
     </div>
   );
 }
-
