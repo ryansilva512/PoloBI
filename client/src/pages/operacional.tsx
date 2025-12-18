@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Clock4 } from "lucide-react";
 import type { TicketRaw } from "@shared/schema";
 
 const DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
@@ -54,27 +54,18 @@ export default function Operacional() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [protocoloTerm, setProtocoloTerm] = useState("");
 
-  const ticketsUnicos = useMemo(() => {
-    if (!ticketsResponse?.lista) return [];
-    const map = new Map<number | string, TicketRaw>();
-    ticketsResponse.lista.forEach((ticket) => {
-      const key = ticket.id ?? ticket.codigo;
-      map.set(key, ticket);
-    });
-    return Array.from(map.values());
-  }, [ticketsResponse?.lista]);
-
   const dataInicialDate = useMemo(() => parseDateSafely(filters.data_inicial), [filters.data_inicial]);
   const dataFinalDate = useMemo(() => parseDateSafely(filters.data_final), [filters.data_final]);
 
   const ticketsFiltrados = useMemo(() => {
-    if (!ticketsUnicos.length) return [];
+    const lista = ticketsResponse?.lista ?? [];
+    if (!lista.length) return [];
 
     const start = dataInicialDate;
     const end = dataFinalDate;
     const filtroAnalista = normalizeName(filters.analista);
 
-    return ticketsUnicos.filter((ticket) => {
+    const dentroPeriodo = lista.filter((ticket) => {
       const dataRef = ticket.data_criacao || ticket.data_inicial || ticket.data_final;
       const dataTicket = parseDateSafely(dataRef);
       const operador = normalizeName(ticket.nome);
@@ -84,7 +75,44 @@ export default function Operacional() {
       if (end && dataTicket && dataTicket > end) return false;
       return true;
     });
-  }, [ticketsUnicos, filters, dataInicialDate, dataFinalDate]);
+
+    // Deduplicacao apos aplicar o filtro de datas/analista para manter apenas chamados do intervalo
+    const map = new Map<number | string, TicketRaw>();
+    dentroPeriodo.forEach((ticket) => {
+      const key = ticket.id ?? ticket.codigo;
+      if (!map.has(key)) {
+        map.set(key, ticket);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [ticketsResponse?.lista, filters, dataInicialDate, dataFinalDate]);
+
+  const tempoMedioAbertura = useMemo(() => {
+    if (!ticketsFiltrados.length) {
+      return { minutos: null as number | null, total: 0 };
+    }
+
+    let totalMinutos = 0;
+    let count = 0;
+
+    ticketsFiltrados.forEach((ticket) => {
+      const dataCriacao = parseDateSafely(ticket.data_criacao);
+      const dataInicial = parseDateSafely(ticket.data_inicial);
+
+      if (!dataCriacao || !dataInicial) return;
+
+      const diffMs = dataInicial.getTime() - dataCriacao.getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return;
+
+      totalMinutos += diffMs / (1000 * 60);
+      count += 1;
+    });
+
+    if (!count) return { minutos: null, total: 0 };
+
+    return { minutos: totalMinutos / count, total: count };
+  }, [ticketsFiltrados]);
 
   const aggregatedData = useMemo(() => {
     if (!ticketsFiltrados.length) return null;
@@ -105,13 +133,13 @@ export default function Operacional() {
   }, [aggregatedData?.operadorMetrics, searchTerm]);
 
   const operadoresDisponiveis = useMemo(() => {
-    if (!ticketsUnicos.length) return [];
+    if (!ticketsFiltrados.length) return [];
     const unique = new Set<string>();
-    ticketsUnicos.forEach((ticket) => {
+    ticketsFiltrados.forEach((ticket) => {
       if (ticket.nome) unique.add(ticket.nome);
     });
     return Array.from(unique).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [ticketsUnicos]);
+  }, [ticketsFiltrados]);
 
   const handleDateChange = (type: "start" | "end", value: string) => {
     if (!value) {
@@ -154,13 +182,18 @@ export default function Operacional() {
   }, [ticketsFiltrados, searchTerm, statusFilter, protocoloTerm]);
 
   const statusDisponiveis = useMemo(() => {
-    if (!ticketsResponse?.lista) return [];
+    if (!ticketsFiltrados.length) return [];
     const unique = new Set<string>();
-    ticketsResponse.lista.forEach((ticket) => {
+    ticketsFiltrados.forEach((ticket) => {
       if (ticket.status?.text) unique.add(ticket.status.text);
     });
     return Array.from(unique).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [ticketsResponse?.lista]);
+  }, [ticketsFiltrados]);
+
+  const tempoMedioAberturaFormatado =
+    tempoMedioAbertura.minutos !== null
+      ? minutosToHoraString(Math.round(tempoMedioAbertura.minutos))
+      : "--:--";
 
   const operadorColumns: Column<any>[] = [
     {
@@ -377,7 +410,7 @@ export default function Operacional() {
       </Card>
 
       {/* Apenas cards-chave */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KPICard
           titulo="Em Aberto"
           valor={aggregatedData.ticketsEmAberto.toLocaleString()}
@@ -389,6 +422,17 @@ export default function Operacional() {
           valor={aggregatedData.distribuicaoPorStatus.length.toString()}
           icone={<AlertTriangle className="w-5 h-5" />}
           destaque="success"
+        />
+        <KPICard
+          titulo="Tempo Medio de Abertura"
+          valor={tempoMedioAberturaFormatado}
+          icone={<Clock4 className="w-5 h-5" />}
+          destaque="neutral"
+          tooltip={
+            tempoMedioAbertura.total
+              ? `Media entre data_criacao e data_inicial (${tempoMedioAbertura.total} tickets validos).`
+              : "Media entre data_criacao e data_inicial dos chamados com datas validas."
+          }
         />
       </div>
 
@@ -461,3 +505,4 @@ export default function Operacional() {
     </div>
   );
 }
+

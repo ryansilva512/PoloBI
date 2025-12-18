@@ -52,7 +52,7 @@ export async function registerRoutes(
       const timeout = setTimeout(() => controller.abort(), 15000);
 
       console.log("Tentando com header 'Authorization'");
-      const response = await fetch(MILVUS_URL, {
+      const response = await fetch(urlWithPage, {
         method: "POST",
         headers: {
           "Authorization": API_KEY,
@@ -60,7 +60,9 @@ export async function registerRoutes(
         },
         body: JSON.stringify({
           pagina: 1,
+          page: 1,
           limit: 10,
+          per_page: 10,
         }),
         signal: controller.signal,
       });
@@ -128,8 +130,10 @@ export async function registerRoutes(
       data_final: req.body?.data_final,
       analista: req.body?.analista,
       mesa_trabalho: req.body?.mesa_trabalho,
-      pagina: req.body?.pagina,
-      limit: req.body?.limit
+      pagina: req.body?.pagina ?? req.body?.page,
+      page: req.body?.page,
+      limit: req.body?.limit ?? req.body?.per_page,
+      per_page: req.body?.per_page
     });
 
     const formatDateForApi = (value?: string | null, type: "start" | "end" = "start") => {
@@ -155,33 +159,54 @@ export async function registerRoutes(
         type === "start"
           ? new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0)
           : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 23, 59, 59);
-      // A API retorna datas no formato "yyyy-MM-dd HH:mm:ss", entãoutilizamos o mesmo formato ao enviar.
-      return format(adjusted, "yyyy-MM-dd HH:mm:ss");
+      // A API retorna datas no formato "yyyy-MM-dd", entãoutilizamos o mesmo formato ao enviar.
+      return format(adjusted, "yyyy-MM-dd");
     };
 
+    // A API do MILVUS só respeita paginaÇõÇœ se vier na query (?pagina=X&limit=Y).
+    // O limit parece fixo em 50 apesar dos parÇômetros; usamos o informado ou default 50.
+    const pageSize = req.body?.limit ?? req.body?.per_page ?? 50;
+    const pageParam = req.body?.pagina ?? req.body?.page ?? 1;
+
+    // A doc oficial exige que os filtros venham em "filtro_body"
+    const filtroBody: Record<string, any> = {};
+    const addIf = (key: string, value: any) => {
+      if (value !== undefined && value !== null && value !== "") {
+        filtroBody[key] = value;
+      }
+    };
+    addIf("data_inicial", formatDateForApi(req.body?.data_inicial, "start"));
+    addIf("data_final", formatDateForApi(req.body?.data_final, "end"));
+    addIf("analista", req.body?.analista);
+    addIf("mesa_trabalho", req.body?.mesa_trabalho);
+
     const baseBody = {
-      ...req.body,
-      data_inicial: formatDateForApi(req.body?.data_inicial, "start"),
-      data_final: formatDateForApi(req.body?.data_final, "end"),
+      filtro_body: filtroBody,
+      total_registros: pageSize, // seguiu a doc (default 50, max 1000)
     };
 
     console.log("Payload enviado para MILVUS (normalizado):", {
-      ...baseBody,
-      pagina: req.body?.pagina,
-      limit: req.body?.limit,
+      pagina: pageParam,
+      limit: pageSize,
+      filtro_body: filtroBody,
     });
 
     const fetchPage = async (page: number) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch(MILVUS_URL, {
+      const urlWithPage = `${MILVUS_URL}?pagina=${page}&limit=${pageSize}`;
+
+      const response = await fetch(urlWithPage, {
         method: "POST",
         headers: {
           "Authorization": API_KEY,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ ...baseBody, pagina: page }),
+        body: JSON.stringify({ 
+          ...baseBody,
+          pagina: page,
+        }),
         signal: controller.signal,
       });
 
@@ -201,10 +226,15 @@ export async function registerRoutes(
     };
 
     try {
-      // primeira p?gina
+      // primeira pÇágina
       const firstPage = await fetchPage(1);
-      const totalPages = firstPage?.meta?.last_page || 1;
-      const perPage = firstPage?.meta?.per_page || req.body?.limit || 50;
+      const perPage = firstPage?.meta?.per_page || firstPage?.meta?.perPage || pageSize || 50;
+      const totalFromMeta = firstPage?.meta?.total || 0;
+      const totalPages =
+        firstPage?.meta?.last_page ||
+        firstPage?.meta?.lastPage ||
+        (perPage > 0 ? Math.ceil(totalFromMeta / perPage) : 1) ||
+        1;
       const allTickets = [...(firstPage.lista || [])];
 
       console.log("MILVUS first page:", {
@@ -424,3 +454,4 @@ export async function registerRoutes(
 
   return httpServer;
 }
+
