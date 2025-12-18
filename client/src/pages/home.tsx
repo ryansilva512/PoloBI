@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,6 +74,34 @@ const parseDateRangeDias = (dataInicial?: string, dataFinal?: string) => {
   // Conta dias de forma inclusiva (mesmo dia = 1)
   const dias = differenceInCalendarDays(endOfDay(fim), startOfDay(inicio)) + 1;
   return Math.max(dias, 1);
+};
+
+// Mapas de avatar por nome (coloque as imagens em public/avatars/<arquivo>.png)
+const avatarMap: Record<string, string> = {
+  moraes: "/avatars/Moraes.png",
+  victor: "/avatars/Victor.png",
+  abraao: "/avatars/Abraão.png",
+  carlos: "/avatars/Carlos.png",
+  alves: "/avatars/Alves.png",
+  bruno: "/avatars/Bruno.png",
+  paulo: "/avatars/Paulo.png",
+  celio: "/avatars/Célio.png",
+  ryan: "/avatars/Ryan.png",
+};
+
+const normalizeName = (value: string) =>
+  value
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const getAvatarSrc = (nome: string) => {
+  const key = normalizeName(nome);
+  const byMap = avatarMap[key];
+  if (byMap) return byMap;
+  // tenta ascii e o nome original como fallback
+  return `/avatars/${key}.png`;
 };
 
 export default function Home() {
@@ -449,6 +477,7 @@ export default function Home() {
   };
 
   const tempoMedioRespostaGlobal = tempoMedioAbertura.minutos;
+  const topOperadores = rankingOperadores.slice(0, 4);
 
   return (
     <div className="space-y-6">
@@ -521,7 +550,7 @@ export default function Home() {
         ))}
       </div>
 
-      {/* Gráficos de tempo médio + notas */}
+      {/* Gráficos de tempo médio + top operadores */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <Card>
           <CardHeader>
@@ -600,20 +629,62 @@ export default function Home() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-foreground/80" />
-              Média das Notas (estimada via conformidade)
+              Top 4 Operadores
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-bold font-mono">
-                {mediaEstimadaNotas.toFixed(1)}
-              </span>
-              <span className="text-sm text-muted-foreground">/ 5.0</span>
-            </div>
-            {renderStars()}
-            <p className="text-sm text-muted-foreground">
-              Calculado a partir da conformidade de SLA (em dia vs. total).
-            </p>
+          <CardContent className="space-y-4">
+            {topOperadores.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sem dados no período.</p>
+            )}
+            {topOperadores.map((op, idx) => {
+              const avatarSrc = getAvatarSrc(op.nome);
+              const isFirst = idx === 0;
+              const isSecond = idx === 1;
+              const isThird = idx === 2;
+              const trophy = isFirst ? "🏆" : isSecond ? "🥈" : isThird ? "🥉" : null;
+              const sizeClass = isFirst ? "h-12 w-12" : "h-10 w-10";
+              return (
+                <div
+                  key={op.nome}
+                  className={cn(
+                    "flex items-center justify-between rounded-md border border-border/60 px-3 py-2 transition",
+                    isFirst
+                      ? "bg-amber-50/5 border-amber-500/50 ring-1 ring-amber-500/60 scale-[1.02]"
+                      : "",
+                    isSecond ? "border-slate-500/40" : "",
+                    isThird ? "border-amber-700/30" : ""
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs font-semibold text-muted-foreground">#{idx + 1}</div>
+                    <Avatar className={sizeClass}>
+                      {avatarSrc ? <AvatarImage src={avatarSrc} alt={op.nome} /> : null}
+                      <AvatarFallback>{op.nome.slice(0, 2).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex items-center gap-2">
+                      {trophy && (
+                        <span className={cn("text-lg", isFirst ? "text-amber-400" : isSecond ? "text-slate-300" : "text-amber-700")} role="img" aria-label="trofeu">
+                          {trophy}
+                        </span>
+                      )}
+                      <div>
+                        <div
+                          className={cn(
+                            "leading-tight",
+                            isFirst ? "font-semibold text-amber-200 text-base" : "font-semibold"
+                          )}
+                        >
+                          {op.nome}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {op.total} chamados • {op.mediaDiaria.toFixed(2)} / dia
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       </div>
