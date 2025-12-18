@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { format, parseISO, isValid } from "date-fns";
 import { storage } from "./storage";
 
 export async function registerRoutes(
@@ -111,11 +112,12 @@ export async function registerRoutes(
     }
   });
 
-  // Proxy para MILVUS API - relatorio-atendimento
+  
+// Proxy para MILVUS API - relatorio-atendimento
   app.post("/api/proxy/relatorio-atendimento/listagem", async (req, res) => {
     const API_KEY = process.env.MILVUS_API_KEY || "dMHE29hFX9YUOQWFXlu0QGeft2MOQEoBS6R7UEnalEjPodSl0j0BE5krXyxGPJax9tVJz6RblIAHR5OVpblnvhQQ2WDjTZEe9GoF7";
     const MILVUS_URL = "https://apiintegracao.milvus.com.br/api/relatorio-atendimento/listagem";
-    
+
     console.log("=== MILVUS Proxy Request ===");
     console.log("API_KEY presente:", !!API_KEY);
     console.log("API_KEY comprimento:", API_KEY.length);
@@ -129,143 +131,126 @@ export async function registerRoutes(
       pagina: req.body?.pagina,
       limit: req.body?.limit
     });
-    
-    // Try to fetch from MILVUS first
-    if (API_KEY) {
+
+    const formatDateForApi = (value?: string | null, type: "start" | "end" = "start") => {
+      if (!value) return value;
+      let parsed: Date | null = null;
+
+      // tenta ISO (yyyy-MM-dd...)
       try {
-        console.log("Proxy request to MILVUS:", {
-          url: MILVUS_URL,
-          pagina: req.body?.pagina,
-          limit: req.body?.limit
-        });
-
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
-
-        const response = await fetch(MILVUS_URL, {
-          method: "POST",
-          headers: {
-            "Authorization": API_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(req.body),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("MILVUS API error response:", {
-            status: response.status,
-            statusText: response.statusText,
-            bodyLength: errorText.length
-          });
-          throw new Error(`MILVUS API returned ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        console.log("MILVUS API success:", {
-          status: response.status,
-          dataLength: data?.lista?.length
-        });
-        
-        // Log primeiro item para debug
-        if (data?.lista?.length > 0) {
-          console.log("Primeiro item:", JSON.stringify(data.lista[0], null, 2));
-        }
-        
-        return res.json(data);
-      } catch (error: any) {
-        console.error("MILVUS Proxy Error:", {
-          message: error.message,
-          code: error.code,
-          name: error.name
-        });
+        const maybe = parseISO(value);
+        if (isValid(maybe)) parsed = maybe;
+      } catch (_) {
+        /* ignore */
       }
-    }
-    
-    // Fallback to mock data
-    console.log("Using mock data fallback for tickets");
-    
-    // Generate mock tickets data with all required fields
-    const nomes = ["Ana Silva", "Carlos Santos", "Maria Oliveira", "João Pereira"];
-    const sobreomes = ["Silva", "Santos", "Oliveira", "Pereira"];
-    const mesas = [
-      { id: 1, text: "Suporte Técnico" },
-      { id: 2, text: "Administrativo" },
-      { id: 3, text: "Comercial" }
-    ];
-    const tipos = [
-      { id: 1, text: "Incidente" },
-      { id: 2, text: "Alteração" },
-      { id: 3, text: "Solicitação" }
-    ];
-    const categorias = [
-      { id: 1, text: "Acesso" },
-      { id: 2, text: "Sistema" },
-      { id: 3, text: "Hardware" }
-    ];
-    const setores = [
-      { id: 1, text: "TI" },
-      { id: 2, text: "Financeiro" },
-      { id: 3, text: "RH" }
-    ];
-    const statuses = [
-      { id: 1, text: "Finalizado" },
-      { id: 2, text: "Aberto" },
-      { id: 3, text: "Em Progresso" }
-    ];
 
-    const mockTickets = Array.from({ length: 50 }, (_, i) => ({
-      id: i + 1,
-      chamado_id: 5000 + i,
-      codigo: 1000 + i,
-      assunto: `Ticket #${i + 1} - Suporte Técnico`,
-      nome_fantasia: "Empresa Teste LTDA",
-      nome: nomes[i % nomes.length],
-      sobrenome: sobreomes[i % sobreomes.length],
-      data_inicial: new Date(Date.now() - (i * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
-      data_final: new Date(Date.now() - ((i - 5) * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
-      tipo_hora: "horas",
-      is_externo: i % 2 === 0,
-      tecnico: nomes[i % nomes.length],
-      total_horas_atendimento: String(Math.floor(Math.random() * 8)),
-      horas_ticket: String(Math.floor(Math.random() * 48)),
-      horas_operador: String(Math.floor(Math.random() * 8)),
-      horas_internas: String(Math.floor(Math.random() * 6)),
-      horas_externas: String(Math.floor(Math.random() * 2)),
-      descricao: "Descrição do problema relatado pelo cliente.",
-      is_comercial: i % 3 === 0,
-      contato: "cliente@empresa.com",
-      mesa_trabalho: mesas[i % mesas.length],
-      tipo_chamado: tipos[i % tipos.length],
-      categoria_primaria: categorias[i % categorias.length],
-      categoria_secundaria: categorias[(i + 1) % categorias.length],
-      status: statuses[i % statuses.length],
-      data_criacao: new Date(Date.now() - (i * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
-      data_solucao: i % 2 === 0 ? new Date(Date.now() - ((i - 3) * 24 * 60 * 60 * 1000)).toISOString().split('T')[0] : "2025-12-16",
-      setor: setores[i % setores.length],
-      motivo_pausa: { text: "Aguardando informação do cliente" },
-      data_saida: null,
-      data_chegada: null,
-      unidade_negocio: "Support"
-    }));
+      // fallback para Date nativo
+      if (!parsed) {
+        const maybe = new Date(value);
+        if (!Number.isNaN(maybe.getTime())) parsed = maybe;
+      }
 
-    res.json({
-      meta: {
-        current_page: req.body?.pagina || 1,
-        total: 50,
-        to: Math.min(50, req.body?.limit || 500),
-        from: 1,
-        last_page: 1,
-        per_page: req.body?.limit || 500
-      },
-      lista: mockTickets
+      if (!parsed) return value;
+      const adjusted =
+        type === "start"
+          ? new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0)
+          : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 23, 59, 59);
+      // A API retorna datas no formato "yyyy-MM-dd HH:mm:ss", entãoutilizamos o mesmo formato ao enviar.
+      return format(adjusted, "yyyy-MM-dd HH:mm:ss");
+    };
+
+    const baseBody = {
+      ...req.body,
+      data_inicial: formatDateForApi(req.body?.data_inicial, "start"),
+      data_final: formatDateForApi(req.body?.data_final, "end"),
+    };
+
+    console.log("Payload enviado para MILVUS (normalizado):", {
+      ...baseBody,
+      pagina: req.body?.pagina,
+      limit: req.body?.limit,
     });
+
+    const fetchPage = async (page: number) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch(MILVUS_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ...baseBody, pagina: page }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("MILVUS API error response:", {
+          status: response.status,
+          statusText: response.statusText,
+          bodyLength: errorText.length
+        });
+        throw new Error(`MILVUS API returned ${response.status} ${response.statusText}`);
+      }
+
+      return response.json();
+    };
+
+    try {
+      // primeira p?gina
+      const firstPage = await fetchPage(1);
+      const totalPages = firstPage?.meta?.last_page || 1;
+      const perPage = firstPage?.meta?.per_page || req.body?.limit || 50;
+      const allTickets = [...(firstPage.lista || [])];
+
+      console.log("MILVUS first page:", {
+        listaLength: firstPage.lista?.length,
+        totalPages,
+        perPage,
+        totalFromMeta: firstPage.meta?.total
+      });
+
+      for (let page = 2; page <= totalPages; page++) {
+        const pageData = await fetchPage(page);
+        console.log("MILVUS page fetched:", page, "length:", pageData.lista?.length);
+        allTickets.push(...(pageData.lista || []));
+      }
+
+      const combinedResponse = {
+        // meta reescrito para representar um único "lote" já agregado
+        meta: {
+          ...firstPage.meta,
+          current_page: 1,
+          last_page: 1,
+          per_page: allTickets.length,
+          total: allTickets.length,
+          to: allTickets.length,
+          from: allTickets.length > 0 ? 1 : 0,
+        },
+        lista: allTickets,
+      };
+
+      return res.json(combinedResponse);
+    } catch (error: any) {
+      console.error("MILVUS Proxy Error:", {
+        message: error.message,
+        code: error.code,
+        name: error.name
+      });
+
+      return res.status(502).json({
+        success: false,
+        error: "Falha ao consultar a API MILVUS",
+        detail: error.message,
+      });
+    }
   });
 
-  // Dashboard Summary
+// Dashboard Summary
   app.get("/api/dashboard/summary", async (req, res) => {
     try {
       const summary = await storage.getDashboardSummary();

@@ -103,7 +103,7 @@ class MilvusApiClient {
   }
 
   /**
-   * Busca múltiplas páginas em paralelo (para carregamento completo de dados)
+   * Busca todas as páginas. O servidor já retorna tudo agregado.
    */
   async getTicketsAllPages(filters: {
     data_inicial?: string;
@@ -112,38 +112,9 @@ class MilvusApiClient {
     mesa_trabalho?: string;
     limit?: number;
   }): Promise<PaginatedTicketResponse> {
-    // First request to get total pages
-    const firstPage = await this.getTickets({ ...filters, pagina: 1, limit: filters.limit || 500 });
-
-    // If only one page, return it
-    if (firstPage.meta.last_page === 1) {
-      return firstPage;
-    }
-
-    // Fetch remaining pages in parallel
-    const allPages = [firstPage];
-    const pagePromises = [];
-
-    for (let page = 2; page <= firstPage.meta.last_page; page++) {
-      pagePromises.push(
-        this.getTickets({ ...filters, pagina: page, limit: filters.limit || 500 })
-      );
-    }
-
-    const remainingPages = await Promise.all(pagePromises);
-    allPages.push(...remainingPages);
-
-    // Combine all results
-    const combinedResponse: PaginatedTicketResponse = {
-      meta: firstPage.meta,
-      lista: allPages.reduce<any[]>((acc, page) => [...acc, ...page.lista], []),
-    };
-
-    // Update meta with actual total
-    combinedResponse.meta.total = combinedResponse.lista.length;
-
-    return combinedResponse;
+    return this.getTickets({ ...filters, pagina: 1, limit: filters.limit || 500 });
   }
+
 }
 
 export const apiClient = new MilvusApiClient();
