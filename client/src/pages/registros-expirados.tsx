@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
     format,
@@ -35,7 +35,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Clock, Timer, User, Building2, FileText, Download, Loader2 } from "lucide-react";
+import { AlertTriangle, Clock, Timer, User, Building2, FileText, Download, Loader2, PartyPopper, TrendingUp, Flame } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import jsPDF from "jspdf";
 import type { TicketRaw } from "@shared/schema";
@@ -73,6 +73,18 @@ const formatMinutosCompleto = (minutos: number | null) => {
     return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 };
 
+// Calcula a porcentagem excedida da meta
+const calcularPorcentagemExcedida = (tempoMinutos: number, metaMinutos: number): number => {
+    return Math.round((tempoMinutos / metaMinutos) * 100);
+};
+
+// Retorna cor baseada no quanto excedeu a meta
+const getExceededColor = (porcentagem: number): { bg: string; text: string; bar: string } => {
+    if (porcentagem <= 150) return { bg: "bg-amber-500/20", text: "text-amber-600", bar: "bg-amber-500" };
+    if (porcentagem <= 300) return { bg: "bg-orange-500/20", text: "text-orange-600", bar: "bg-orange-500" };
+    return { bg: "bg-red-500/20", text: "text-red-600", bar: "bg-red-500" };
+};
+
 export default function RegistrosExpirados() {
     const { filters, updateFilters } = useFilters();
     const { data: ticketsResponse, isLoading } = useTicketsData(filters, true);
@@ -81,6 +93,15 @@ export default function RegistrosExpirados() {
     const [activeTab, setActiveTab] = useState<"resposta" | "atendimento">("resposta");
     const [isExporting, setIsExporting] = useState(false);
     const { toast } = useToast();
+
+    // Ler parâmetro tab da URL para definir a aba inicial
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab === 'resposta' || tab === 'atendimento') {
+            setActiveTab(tab);
+        }
+    }, []);
 
     const tickets = ticketsResponse?.lista ?? [];
 
@@ -403,17 +424,35 @@ export default function RegistrosExpirados() {
                         )}
                     </Button>
                 </div>
-                <div className="flex gap-3">
-                    <Card className="bg-amber-500/10 border-amber-500/40 min-w-[140px]">
-                        <CardContent className="py-3 px-4 text-center">
-                            <p className="text-2xl font-bold font-mono text-amber-500">{respostasExpiradas.length}</p>
-                            <p className="text-xs text-muted-foreground">Resp. Expiradas</p>
+                <div className="flex gap-4">
+                    {/* KPI Resposta Expirada */}
+                    <Card className="relative overflow-hidden border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-500/10 to-amber-500/5 min-w-[180px] transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/10">
+                        <CardContent className="py-4 px-5">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-xl bg-amber-500/20 ring-2 ring-amber-500/30">
+                                    <Timer className="h-5 w-5 text-amber-500" />
+                                </div>
+                                <div>
+                                    <p className="text-3xl font-bold font-mono text-amber-500">{respostasExpiradas.length}</p>
+                                    <p className="text-xs font-medium text-muted-foreground">Respostas Expiradas</p>
+                                    <p className="text-[10px] text-amber-600/80">Meta: 5 min</p>
+                                </div>
+                            </div>
                         </CardContent>
                     </Card>
-                    <Card className="bg-red-500/10 border-red-500/40 min-w-[140px]">
-                        <CardContent className="py-3 px-4 text-center">
-                            <p className="text-2xl font-bold font-mono text-red-500">{atendimentosExpirados.length}</p>
-                            <p className="text-xs text-muted-foreground">Atend. Expirados</p>
+                    {/* KPI Atendimento Expirado */}
+                    <Card className="relative overflow-hidden border-l-4 border-l-red-500 bg-gradient-to-br from-red-500/10 to-red-500/5 min-w-[180px] transition-all duration-300 hover:shadow-lg hover:shadow-red-500/10">
+                        <CardContent className="py-4 px-5">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-xl bg-red-500/20 ring-2 ring-red-500/30">
+                                    <Clock className="h-5 w-5 text-red-500" />
+                                </div>
+                                <div>
+                                    <p className="text-3xl font-bold font-mono text-red-500">{atendimentosExpirados.length}</p>
+                                    <p className="text-xs font-medium text-muted-foreground">Atendimentos Expirados</p>
+                                    <p className="text-[10px] text-red-600/80">Meta: 4 horas</p>
+                                </div>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
@@ -495,7 +534,7 @@ export default function RegistrosExpirados() {
                 </TabsList>
 
                 {/* Tab: Resposta Expirada */}
-                <TabsContent value="resposta" className="mt-4">
+                <TabsContent value="resposta" className="mt-4 animate-in fade-in-50 slide-in-from-bottom-3 duration-300">
                     <Card>
                         <CardHeader className="bg-amber-500/10 border-b border-amber-500/30">
                             <CardTitle className="flex items-center gap-2 text-amber-600">
@@ -514,52 +553,79 @@ export default function RegistrosExpirados() {
                                 <TableHeader>
                                     <TableRow className="bg-muted/50">
                                         <TableHead className="w-[100px]">Ticket</TableHead>
-                                        <TableHead>Nome do Operador</TableHead>
-                                        <TableHead>Nome Fantasia do Cliente</TableHead>
-                                        <TableHead>Contato do Ticket</TableHead>
-                                        <TableHead>Tipo do Ticket</TableHead>
-                                        <TableHead className="text-right">Diferença de Tempo</TableHead>
+                                        <TableHead>Operador</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead>Tipo</TableHead>
+                                        <TableHead className="w-[200px]">Excedeu a Meta</TableHead>
+                                        <TableHead className="text-right">Tempo</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {respostasExpiradas.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                                                🎉 Nenhuma resposta expirada no período!
+                                            <TableCell colSpan={6} className="py-16">
+                                                <div className="flex flex-col items-center justify-center gap-3 text-center">
+                                                    <div className="p-4 rounded-full bg-green-500/10 ring-2 ring-green-500/20">
+                                                        <PartyPopper className="h-8 w-8 text-green-500" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-lg font-semibold text-green-600">Parabéns! 🎉</p>
+                                                        <p className="text-sm text-muted-foreground">Nenhuma resposta expirada no período selecionado</p>
+                                                    </div>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        respostasExpiradas.slice(0, 50).map((ticket, idx) => (
-                                            <TableRow
-                                                key={`${ticket.codigo}-${idx}`}
-                                                className={cn(
-                                                    "cursor-pointer hover:bg-muted/50 transition-colors",
-                                                    idx % 2 === 0 ? "bg-background" : "bg-muted/20"
-                                                )}
-                                                onClick={() => {
-                                                    updateFilters({ analista: ticket.nome });
-                                                    setLocation("/operacional");
-                                                }}
-                                            >
-                                                <TableCell className="font-mono font-bold">{ticket.codigo}</TableCell>
-                                                <TableCell>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-600 text-xs font-bold">
-                                                            {ticket.nome?.slice(0, 2).toUpperCase() || "??"}
+                                        respostasExpiradas.slice(0, 50).map((ticket, idx) => {
+                                            const porcentagem = calcularPorcentagemExcedida(ticket.tempoResposta, META_RESPOSTA_MINUTOS);
+                                            const cores = getExceededColor(porcentagem);
+                                            const barWidth = Math.min(porcentagem, 500) / 5; // max 100%
+                                            return (
+                                                <TableRow
+                                                    key={`${ticket.codigo}-${idx}`}
+                                                    className={cn(
+                                                        "cursor-pointer transition-all duration-200",
+                                                        "hover:bg-amber-500/10 hover:shadow-sm",
+                                                        idx % 2 === 0 ? "bg-background" : "bg-muted/30"
+                                                    )}
+                                                    onClick={() => {
+                                                        updateFilters({ analista: ticket.nome });
+                                                        setLocation("/operacional");
+                                                    }}
+                                                >
+                                                    <TableCell className="font-mono font-bold">{ticket.codigo}</TableCell>
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-600 text-xs font-bold ring-1 ring-amber-500/30">
+                                                                {ticket.nome?.slice(0, 2).toUpperCase() || "??"}
+                                                            </div>
+                                                            <span className="truncate max-w-[120px]">{ticket.nome}</span>
                                                         </div>
-                                                        {ticket.nome}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="max-w-[200px] truncate">{ticket.nome_fantasia}</TableCell>
-                                                <TableCell className="max-w-[180px] truncate">{ticket.contato || "-"}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline">{ticket.tipo_chamado?.text || "-"}</Badge>
-                                                </TableCell>
-                                                <TableCell className="text-right font-mono font-bold text-amber-600">
-                                                    {formatMinutosCompleto(ticket.tempoResposta)}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[150px] truncate">{ticket.nome_fantasia}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className="text-xs">{ticket.tipo_chamado?.text || "-"}</Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center justify-between text-xs">
+                                                                <span className={cn("font-semibold", cores.text)}>{porcentagem}%</span>
+                                                                {porcentagem > 200 && <Flame className="h-3 w-3 text-red-500" />}
+                                                            </div>
+                                                            <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                                                <div
+                                                                    className={cn("h-full rounded-full transition-all duration-500", cores.bar)}
+                                                                    style={{ width: `${barWidth}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className={cn("text-right font-mono font-bold", cores.text)}>
+                                                        {formatMinutosCompleto(ticket.tempoResposta)}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
                                     )}
                                 </TableBody>
                             </Table>
@@ -568,7 +634,7 @@ export default function RegistrosExpirados() {
                 </TabsContent>
 
                 {/* Tab: Atendimento Expirado */}
-                <TabsContent value="atendimento" className="mt-4">
+                <TabsContent value="atendimento" className="mt-4 animate-in fade-in-50 slide-in-from-bottom-3 duration-300">
                     <Card>
                         <CardHeader className="bg-red-500/10 border-b border-red-500/30">
                             <CardTitle className="flex items-center gap-2 text-red-600">
@@ -587,50 +653,80 @@ export default function RegistrosExpirados() {
                                 <TableHeader>
                                     <TableRow className="bg-muted/50">
                                         <TableHead className="w-[100px]">Ticket</TableHead>
-                                        <TableHead>Nome do Operador</TableHead>
-                                        <TableHead>Tipo do Ticket</TableHead>
-                                        <TableHead>Nome Fantasia do Cliente</TableHead>
-                                        <TableHead className="text-right">Tempo Médio Interno</TableHead>
+                                        <TableHead>Operador</TableHead>
+                                        <TableHead>Tipo</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead className="w-[200px]">Excedeu a Meta</TableHead>
+                                        <TableHead className="text-right">Tempo</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {atendimentosExpirados.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                                                🎉 Nenhum atendimento expirado no período!
+                                            <TableCell colSpan={6} className="py-16">
+                                                <div className="flex flex-col items-center justify-center gap-3 text-center">
+                                                    <div className="p-4 rounded-full bg-green-500/10 ring-2 ring-green-500/20">
+                                                        <PartyPopper className="h-8 w-8 text-green-500" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-lg font-semibold text-green-600">Parabéns! 🎉</p>
+                                                        <p className="text-sm text-muted-foreground">Nenhum atendimento expirado no período selecionado</p>
+                                                    </div>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        atendimentosExpirados.slice(0, 50).map((ticket, idx) => (
-                                            <TableRow
-                                                key={`${ticket.codigo}-${idx}`}
-                                                className={cn(
-                                                    "cursor-pointer hover:bg-muted/50 transition-colors",
-                                                    idx % 2 === 0 ? "bg-background" : "bg-muted/20"
-                                                )}
-                                                onClick={() => {
-                                                    updateFilters({ analista: ticket.nome });
-                                                    setLocation("/operacional");
-                                                }}
-                                            >
-                                                <TableCell className="font-mono font-bold">{ticket.codigo}</TableCell>
-                                                <TableCell>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-7 h-7 rounded-full bg-red-500/20 flex items-center justify-center text-red-600 text-xs font-bold">
-                                                            {ticket.nome?.slice(0, 2).toUpperCase() || "??"}
+                                        atendimentosExpirados.slice(0, 50).map((ticket, idx) => {
+                                            const metaMinutos = META_ATENDIMENTO_HORAS * 60;
+                                            const porcentagem = calcularPorcentagemExcedida(ticket.tempoAtendimento, metaMinutos);
+                                            const cores = getExceededColor(porcentagem);
+                                            const barWidth = Math.min(porcentagem, 500) / 5; // max 100%
+                                            return (
+                                                <TableRow
+                                                    key={`${ticket.codigo}-${idx}`}
+                                                    className={cn(
+                                                        "cursor-pointer transition-all duration-200",
+                                                        "hover:bg-red-500/10 hover:shadow-sm",
+                                                        idx % 2 === 0 ? "bg-background" : "bg-muted/30"
+                                                    )}
+                                                    onClick={() => {
+                                                        updateFilters({ analista: ticket.nome });
+                                                        setLocation("/operacional");
+                                                    }}
+                                                >
+                                                    <TableCell className="font-mono font-bold">{ticket.codigo}</TableCell>
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-7 h-7 rounded-full bg-red-500/20 flex items-center justify-center text-red-600 text-xs font-bold ring-1 ring-red-500/30">
+                                                                {ticket.nome?.slice(0, 2).toUpperCase() || "??"}
+                                                            </div>
+                                                            <span className="truncate max-w-[120px]">{ticket.nome}</span>
                                                         </div>
-                                                        {ticket.nome}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline">{ticket.tipo_chamado?.text || "-"}</Badge>
-                                                </TableCell>
-                                                <TableCell className="max-w-[200px] truncate">{ticket.nome_fantasia}</TableCell>
-                                                <TableCell className="text-right font-mono font-bold text-red-600">
-                                                    {formatMinutosCompleto(ticket.tempoAtendimento)}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className="text-xs">{ticket.tipo_chamado?.text || "-"}</Badge>
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[150px] truncate">{ticket.nome_fantasia}</TableCell>
+                                                    <TableCell>
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center justify-between text-xs">
+                                                                <span className={cn("font-semibold", cores.text)}>{porcentagem}%</span>
+                                                                {porcentagem > 200 && <Flame className="h-3 w-3 text-red-500" />}
+                                                            </div>
+                                                            <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                                                <div
+                                                                    className={cn("h-full rounded-full transition-all duration-500", cores.bar)}
+                                                                    style={{ width: `${barWidth}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className={cn("text-right font-mono font-bold", cores.text)}>
+                                                        {formatMinutosCompleto(ticket.tempoAtendimento)}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
                                     )}
                                 </TableBody>
                             </Table>
