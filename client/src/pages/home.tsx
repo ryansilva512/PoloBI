@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useFilters } from "@/context/FilterContext";
 import { useTicketsData } from "@/hooks/api/useTicketsData";
 import { format, parseISO, isValid, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
@@ -14,6 +15,20 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -31,10 +46,30 @@ import {
   AlertTriangle,
   Activity,
   Star,
+  RefreshCw,
 } from "lucide-react";
 
 const META_RESPOSTA_MINUTOS = 5;
 const META_ATENDIMENTO_HORAS = 4;
+
+// Opções de intervalo de atualização automática
+const REFRESH_OPTIONS = [
+  { label: "30 seg", value: "30000" },
+  { label: "2min 30s", value: "150000" },
+  { label: "5 min", value: "300000" },
+  { label: "10 min", value: "600000" },
+  { label: "20 min", value: "1200000" },
+  { label: "30 min", value: "1800000" },
+];
+
+// Opções de período rápido
+const PERIOD_OPTIONS = [
+  { label: "Semana até hoje", value: "week_to_date" },
+  { label: "Mês até hoje", value: "month_to_date" },
+  { label: "Últimos 7 dias", value: "last_7_days" },
+  { label: "Últimos 14 dias", value: "last_14_days" },
+  { label: "Últimos 30 dias", value: "last_30_days" },
+];
 
 const parseDateSafely = (value?: string | null) => {
   if (!value) return null;
@@ -106,9 +141,154 @@ const getAvatarSrc = (nome: string) => {
 
 export default function Home() {
   const { filters, updateFilters } = useFilters();
-  const { data: ticketsResponse, isLoading } = useTicketsData(filters, true);
+  const { data: ticketsResponse, isLoading, refetch } = useTicketsData(filters, true);
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+
+  // Estado para intervalo de atualização automática
+  const [refreshInterval, setRefreshInterval] = useState<number | null>(() => {
+    const saved = localStorage.getItem('dashboard-refresh-interval');
+    return saved ? parseInt(saved, 10) : null;
+  });
+
+  const [previousTicketCount, setPreviousTicketCount] = useState<number | null>(null);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (!refreshInterval) {
+      setNextRefreshIn(null);
+      return;
+    }
+
+    // Reset countdown
+    setNextRefreshIn(refreshInterval);
+
+    const intervalId = setInterval(async () => {
+      setIsRefreshing(true);
+      console.log('Auto-refresh: atualizando dados...');
+
+      const result = await refetch();
+      const newTicketCount = result.data?.lista?.length || 0;
+
+      // Verifica se há novos tickets
+      if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
+        const newTickets = newTicketCount - previousTicketCount;
+
+        // Função para tocar som de alerta chamativo
+        const playAlertSound = () => {
+          try {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+            // Tocar 3 beeps rápidos e chamatitvos
+            const playBeep = (startTime: number, frequency: number, duration: number) => {
+              const oscillator = audioContext.createOscillator();
+              const gainNode = audioContext.createGain();
+
+              oscillator.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+
+              oscillator.frequency.value = frequency;
+              oscillator.type = 'square';
+
+              gainNode.gain.setValueAtTime(0.3, startTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+              oscillator.start(startTime);
+              oscillator.stop(startTime + duration);
+            };
+
+            // Sequência de beeps ascendentes - muito chamativa
+            const now = audioContext.currentTime;
+            playBeep(now, 800, 0.15);
+            playBeep(now + 0.2, 1000, 0.15);
+            playBeep(now + 0.4, 1200, 0.15);
+            playBeep(now + 0.6, 1500, 0.3);
+          } catch (e) {
+            console.log('Audio não suportado');
+          }
+        };
+
+        // Função para falar usando Web Speech API
+        const speakNotification = (text: string) => {
+          if ('speechSynthesis' in window) {
+            // Cancelar qualquer fala anterior
+            window.speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'pt-BR';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.1;
+            utterance.volume = 1.0;
+
+            // Tentar usar voz em português brasileiro
+            const voices = window.speechSynthesis.getVoices();
+            const ptVoice = voices.find(voice => voice.lang.includes('pt'));
+            if (ptVoice) {
+              utterance.voice = ptVoice;
+            }
+
+            window.speechSynthesis.speak(utterance);
+          }
+        };
+
+        // Tocar o som de alerta
+        playAlertSound();
+
+        // Falar a notificação após o som
+        setTimeout(() => {
+          if (newTickets === 1) {
+            speakNotification('Atenção! Novo chamado Finalizado!');
+          } else {
+            speakNotification(`Atenção! ${newTickets} novos chamados Finalizados!`);
+          }
+        }, 800);
+
+        toast({
+          title: `🔔 ${newTickets} novo(s) chamado(s)!`,
+          description: "Ticket detectado durante atualização automática",
+          duration: 5000,
+        });
+      } else {
+        toast({
+          title: "Dados atualizados",
+          description: "Dashboard atualizado automaticamente",
+          duration: 2000,
+        });
+      }
+
+      setPreviousTicketCount(newTicketCount);
+      setTimeout(() => setIsRefreshing(false), 500);
+      setNextRefreshIn(refreshInterval);
+    }, refreshInterval);
+
+    return () => clearInterval(intervalId);
+  }, [refreshInterval, refetch, toast, previousTicketCount]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!nextRefreshIn || nextRefreshIn <= 0) return;
+
+    const countdownId = setInterval(() => {
+      setNextRefreshIn((prev) => {
+        if (!prev || prev <= 1000) return null;
+        return prev - 1000;
+      });
+    }, 1000);
+
+    return () => clearInterval(countdownId);
+  }, [nextRefreshIn]);
 
   const tickets = ticketsResponse?.lista ?? [];
+
+  // Atualiza contagem inicial de tickets
+  useEffect(() => {
+    if (tickets.length > 0 && previousTicketCount === null) {
+      setPreviousTicketCount(tickets.length);
+    }
+  }, [tickets.length, previousTicketCount]);
 
   const dataInicialDate = useMemo(
     () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
@@ -379,6 +559,54 @@ export default function Home() {
     }
   };
 
+  const handleRefreshChange = (value: string) => {
+    if (value === "off") {
+      setRefreshInterval(null);
+      localStorage.removeItem('dashboard-refresh-interval');
+    } else {
+      const numValue = parseInt(value, 10);
+      setRefreshInterval(numValue);
+      localStorage.setItem('dashboard-refresh-interval', value);
+    }
+  };
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+
+    const result = await refetch();
+    const newTicketCount = result.data?.lista?.length || 0;
+
+    // Verifica se há novos tickets
+    if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
+      const newTickets = newTicketCount - previousTicketCount;
+
+      // Toca som de notificação
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWi77eefTRAMUKfj8LZjHAY4ktfyzHksBSR3yPDdkEAKE1+06+unVRULRp/h8r5uIAUsgs/y2Ik2CBlouO3nn00RDFCn4/C2YxwGOJPY8sx5KwUkeMjw3Y9AChRfsunrp1QUC0af4PK+bSAFLITP8NqJNgcZartuu+3nklERDFCm5PCzYhwGOJTa88tzKgUjd8Xwzo5ACxReu+rqo1QVC0Wf3/K9bSAFLYTO8tqJNwcZarsuu+znklEQS0/j8LRkHAU4lNrzzHgrBSN2xO/NjkALFFuz/ejmUxQLRp/g8axrHwUthM7y2ogzBhlosuzm3JBMEQ1Qq+PztGMcBjeV2vTMeSoFI3TC8M6OQAsVX7Po6KZYFA1Gn+Dyt2wdBCx/z/HYhzcFGWe58d+hTBANUavj87JiFQc3ltr0y3kqBSJzwu/NjT8MFFmx5+igWBQLRZ/f8rltIAQrgc7x2IgzBhposezm3I9LERFT/+TztWQcBTiT2fTMdioGI3K/8M+OQAsWXrPn6KFYFQxFn9/yvG0gBSp7zvHZiDQLGGe58N2hTBENUKvi8rJjHAU3k9n0zHcqBiJywvDPjUAMF1607+ihWBYMRZ/f8rltIAUrfM/x2IcyCxhnufDdoUwQC1Gr4vCyZBwFN5PZ9Mt2KgUicrzwz40/DBhftevov1gWDEWe3vK5ayAGK3vO8diHMgsYZ7nw3aFMEAtQq+Lwsl8cBjeR2fTLdSoFInLB8c+NPwwZX7Xs6L9YFgxFnt3yuWsgBSp7zvHYhzILGGa58N2gSA8KUKrh8LJfHAU3kdf0y3UqBSJywPTPjT8NHF+z7umvVxkMQ53c8rheIAYqe83z2YgyDB1lqevfnkUTCU+q4u+yXhsENo/W88x0KQQicsBxT4w/Dyh2yO3mnlQZDkKd2vO5XB4FKnrL8tmHMQsZY6rp3p1EFApOqOLtsVwcBDaOz/PMdCkEI3K9cU+LPw8occft5p5UGQ5Ands0uVweBSp5yvLZhzELGWOn6d6dRBQJTqbh7bFcHAQ2js/zzHMpBCNxvvFOiz8PKHHI7eaeUxgOQ5zb9LhcHgQqeMry');
+      audio.volume = 0.5;
+      audio.play().catch(() => { });
+
+      toast({
+        title: `🔔 ${newTickets} novo(s) chamado(s)!`,
+        description: "Novos tickets detectados",
+        duration: 4000,
+      });
+    } else {
+      toast({
+        title: "Dados atualizados",
+        description: "Dashboard atualizado manualmente",
+        duration: 2000,
+      });
+    }
+
+    setPreviousTicketCount(newTicketCount);
+    setTimeout(() => setIsRefreshing(false), 500);
+
+    // Reseta o countdown se houver refresh automático ativo
+    if (refreshInterval) {
+      setNextRefreshIn(refreshInterval);
+    }
+  };
+
   const dataInicialDateInput = useMemo(
     () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
     [filters.data_inicial]
@@ -481,15 +709,41 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        titulo="Visão Geral"
-        subtitulo="Dashboard executivo inspirado no painel compartilhado"
-      />
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <PageHeader
+          titulo="Visão Geral"
+          subtitulo="Dashboard executivo inspirado no painel compartilhado"
+        />
+        <div className="flex gap-3">
+          <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
+            <CardHeader className="py-2 px-3">
+              <CardTitle className="text-emerald-400 text-sm">META 00:05:00</CardTitle>
+            </CardHeader>
+            <CardContent className="py-2 px-3">
+              <div className="text-2xl font-mono font-bold">
+                {formatMinutosCompleto(tempoMedioAbertura.minutos)}
+              </div>
+              <p className="text-xs text-muted-foreground">Tempo médio de abertura</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
+            <CardHeader className="py-2 px-3">
+              <CardTitle className="text-emerald-400 text-sm">META 04:00:00</CardTitle>
+            </CardHeader>
+            <CardContent className="py-2 px-3">
+              <div className="text-2xl font-mono font-bold">
+                {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
+              </div>
+              <p className="text-xs text-muted-foreground">Tempo médio de solução</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
       {/* Filtro de datas */}
       <Card className="border-dashed">
         <CardContent className="py-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4 sm:flex-wrap">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase text-muted-foreground">Data inicial</span>
               <Input
@@ -520,6 +774,135 @@ export default function Home() {
             >
               Limpar datas
             </Button>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Período</span>
+              <Select
+                value=""
+                onValueChange={(value) => {
+                  const hoje = new Date();
+                  let dataInicio: Date;
+                  let dataFim = hoje;
+
+                  switch (value) {
+                    case "week_to_date":
+                      const dayOfWeek = hoje.getDay();
+                      const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                      dataInicio = new Date(hoje);
+                      dataInicio.setDate(hoje.getDate() - diffToMonday);
+                      break;
+                    case "month_to_date":
+                      dataInicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+                      break;
+                    case "last_7_days":
+                      dataInicio = new Date(hoje);
+                      dataInicio.setDate(hoje.getDate() - 6);
+                      break;
+                    case "last_14_days":
+                      dataInicio = new Date(hoje);
+                      dataInicio.setDate(hoje.getDate() - 13);
+                      break;
+                    case "last_30_days":
+                      dataInicio = new Date(hoje);
+                      dataInicio.setDate(hoje.getDate() - 29);
+                      break;
+                    default:
+                      return;
+                  }
+
+                  updateFilters({
+                    data_inicial: format(startOfDay(dataInicio), "yyyy-MM-dd HH:mm:ss"),
+                    data_final: format(endOfDay(dataFim), "yyyy-MM-dd HH:mm:ss"),
+                  });
+                }}
+              >
+                <SelectTrigger className="sm:w-[180px]">
+                  <SelectValue placeholder="Selecionar período" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PERIOD_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Mês</span>
+              <Select
+                value=""
+                onValueChange={(value) => {
+                  const [year, month] = value.split("-").map(Number);
+                  const dataInicio = new Date(year, month, 1);
+                  const dataFim = new Date(year, month + 1, 0); // Último dia do mês
+
+                  updateFilters({
+                    data_inicial: format(startOfDay(dataInicio), "yyyy-MM-dd HH:mm:ss"),
+                    data_final: format(endOfDay(dataFim), "yyyy-MM-dd HH:mm:ss"),
+                  });
+                }}
+              >
+                <SelectTrigger className="sm:w-[180px]">
+                  <SelectValue placeholder="Selecionar mês" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const date = new Date();
+                    date.setMonth(date.getMonth() - i);
+                    const value = `${date.getFullYear()}-${date.getMonth()}`;
+                    const monthNames = [
+                      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+                    ];
+                    const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+                    return (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1 ml-auto">
+              <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1">
+                <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
+                Atualização automática
+              </span>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={refreshInterval ? String(refreshInterval) : "off"}
+                  onValueChange={handleRefreshChange}
+                >
+                  <SelectTrigger className="sm:w-[180px]">
+                    <SelectValue placeholder="Desativado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">Desativado</SelectItem>
+                    {REFRESH_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {nextRefreshIn && nextRefreshIn > 0 && (
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {Math.floor(nextRefreshIn / 1000)}s
+                  </span>
+                )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                  className="h-9 w-9"
+                  title="Atualizar agora"
+                >
+                  <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                </Button>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -547,7 +930,8 @@ export default function Home() {
               )}
             </CardContent>
           </Card>
-        ))}
+        ))
+        }
       </div>
 
       {/* Gráficos de tempo médio + top operadores */}
@@ -571,6 +955,12 @@ export default function Home() {
               {tempoRespostaPorOperador.slice(0, 8).map((op) => {
                 const maxValor = tempoRespostaPorOperador[0]?.tempoMedioMinutos || 1;
                 const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
+
+                // Buscar dados do ranking para este operador
+                const rankingData = rankingOperadores.find(r => r.nome === op.nome);
+                const totalTickets = rankingData?.total || 0;
+                const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
+
                 return (
                   <div key={op.nome} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
@@ -579,7 +969,64 @@ export default function Home() {
                         {formatMinutosCompleto(op.tempoMedioMinutos)}
                       </span>
                     </div>
-                    <Progress value={value} className="h-2" />
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            className="group relative cursor-pointer"
+                            onClick={() => {
+                              updateFilters({ analista: op.nome });
+                              setLocation('/operacional');
+                            }}
+                          >
+                            <Progress value={value} className="h-2 transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-blue-500/30" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/20 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-blue-500/30 shadow-xl shadow-blue-500/20 p-0 overflow-hidden"
+                        >
+                          <div className="p-3 min-w-[220px]">
+                            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-blue-500/20">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
+                                {op.nome.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="font-bold text-white text-sm">{op.nome}</p>
+                                <p className="text-[10px] text-blue-300/70">Tempo de Resposta</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                <p className="text-blue-400 font-mono text-lg font-bold">{totalTickets}</p>
+                                <p className="text-slate-400 text-[10px]">Tickets</p>
+                              </div>
+                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
+                                <p className="text-slate-400 text-[10px]">Média/Dia</p>
+                              </div>
+                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                <p className="text-emerald-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioMinutos)}</p>
+                                <p className="text-slate-400 text-[10px]">Tempo</p>
+                              </div>
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-slate-700/50">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-slate-400">Comparação</span>
+                                <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
+                              </div>
+                              <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
+                                <div className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                              </div>
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-blue-500/20 text-center">
+                              <span className="text-[10px] text-blue-400">👆 Clique para ver detalhes</span>
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 );
               })}
@@ -609,6 +1056,12 @@ export default function Home() {
                 const value = maxValor
                   ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100
                   : 0;
+
+                // Buscar dados do ranking para este operador
+                const rankingData = rankingOperadores.find(r => r.nome === op.nome);
+                const totalTickets = rankingData?.total || 0;
+                const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
+
                 return (
                   <div key={op.nome} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
@@ -617,7 +1070,64 @@ export default function Home() {
                         {formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}
                       </span>
                     </div>
-                    <Progress value={value} className="h-2 bg-muted" />
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            className="group relative cursor-pointer"
+                            onClick={() => {
+                              updateFilters({ analista: op.nome });
+                              window.location.href = '/operacional';
+                            }}
+                          >
+                            <Progress value={value} className="h-2 bg-muted transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-emerald-500/30" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/20 to-emerald-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-emerald-500/30 shadow-xl shadow-emerald-500/20 p-0 overflow-hidden"
+                        >
+                          <div className="p-3 min-w-[220px]">
+                            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-emerald-500/20">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
+                                {op.nome.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="font-bold text-white text-sm">{op.nome}</p>
+                                <p className="text-[10px] text-emerald-300/70">Tempo de Atendimento</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                <p className="text-emerald-400 font-mono text-lg font-bold">{totalTickets}</p>
+                                <p className="text-slate-400 text-[10px]">Tickets</p>
+                              </div>
+                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
+                                <p className="text-slate-400 text-[10px]">Média/Dia</p>
+                              </div>
+                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                <p className="text-cyan-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}</p>
+                                <p className="text-slate-400 text-[10px]">Tempo</p>
+                              </div>
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-slate-700/50">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-slate-400">Comparação</span>
+                                <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
+                              </div>
+                              <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
+                                <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                              </div>
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-emerald-500/20 text-center">
+                              <span className="text-[10px] text-emerald-400">👆 Clique para ver detalhes</span>
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 );
               })}
@@ -689,77 +1199,49 @@ export default function Home() {
         </Card>
       </div>
 
-      {/* Metas + ranking de operadores */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-        <div className="grid grid-cols-1 gap-4">
-          <Card className="bg-emerald-500/10 border-emerald-500/40">
-            <CardHeader>
-              <CardTitle className="text-emerald-400">META 00:05:00</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-3xl font-mono font-bold">
-                {formatMinutosCompleto(tempoMedioAbertura.minutos)}
-              </div>
-              <p className="text-sm text-muted-foreground">Tempo médio de abertura</p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-emerald-500/10 border-emerald-500/40">
-            <CardHeader>
-              <CardTitle className="text-emerald-400">META 04:00:00</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-3xl font-mono font-bold">
-                {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
-              </div>
-              <p className="text-sm text-muted-foreground">Tempo médio de solução</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="xl:col-span-3">
-          <CardHeader>
-            <CardTitle>Ranking por operador</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableCaption>
-                Média diária calculada para o período de {periodoDias} dia(s) selecionado(s).
-              </TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Avatar</TableHead>
-                  <TableHead>Quantidade Total</TableHead>
-                  <TableHead>Média de Chamados por Dia</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rankingOperadores.map((op) => {
-                  const mediaDiaria =
-                    periodoDias > 0 ? op.mediaDiaria.toFixed(2) : "0.00";
-                  return (
-                    <TableRow key={op.nome}>
-                      <TableCell className="font-medium">{op.nome}</TableCell>
-                      <TableCell>
-                        <Avatar className="h-10 w-10 border border-border/80">
-                          <AvatarFallback className="bg-muted text-foreground">
-                            {op.nome.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {op.total}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{mediaDiaria}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Ranking de operadores */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Ranking por operador</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableCaption>
+              Média diária calculada para o período de {periodoDias} dia(s) selecionado(s).
+            </TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome</TableHead>
+                <TableHead>Avatar</TableHead>
+                <TableHead>Quantidade Total</TableHead>
+                <TableHead>Média de Chamados por Dia</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rankingOperadores.map((op) => {
+                const mediaDiaria =
+                  periodoDias > 0 ? op.mediaDiaria.toFixed(2) : "0.00";
+                return (
+                  <TableRow key={op.nome}>
+                    <TableCell className="font-medium">{op.nome}</TableCell>
+                    <TableCell>
+                      <Avatar className="h-10 w-10 border border-border/80">
+                        <AvatarFallback className="bg-muted text-foreground">
+                          {op.nome.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {op.total}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{mediaDiaria}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -57,24 +57,16 @@ const menuReferencia = [
 
 export function AppSidebar() {
   const [location] = useLocation();
-  // Usa exatamente o nome do arquivo na pasta public
-  const logoPrimary = "/Icone_Logo.png";
-  const logoFallback = "/logo-polo.svg";
 
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-md bg-transparent">
+          <div className="flex h-16 w-16 items-center justify-center rounded-md bg-transparent">
             <img
-              src={logoPrimary}
+              src="/Icone_Logo.png"
               alt="Polo BI"
-              className="h-12 w-12 object-contain"
-              onError={(e) => {
-                const img = e.currentTarget as HTMLImageElement;
-                if (img.src.endsWith(logoFallback)) return;
-                img.src = logoFallback;
-              }}
+              className="h-16 w-16 object-contain"
             />
           </div>
           <div>
