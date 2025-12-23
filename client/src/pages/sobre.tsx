@@ -36,7 +36,7 @@ export default function Sobre() {
             interativos e acionáveis. Nosso objetivo é transformar dados em decisões,
             permitindo que gestores, analistas e diretoria tenham visibilidade clara sobre:
           </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="flex items-center gap-2 text-sm">
               <Badge variant="secondary" className="h-6 w-6 p-0 flex items-center justify-center">1</Badge>
               <span>Volume e status de chamados</span>
@@ -48,10 +48,6 @@ export default function Sobre() {
             <div className="flex items-center gap-2 text-sm">
               <Badge variant="secondary" className="h-6 w-6 p-0 flex items-center justify-center">3</Badge>
               <span>Satisfação do cliente</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <Badge variant="secondary" className="h-6 w-6 p-0 flex items-center justify-center">4</Badge>
-              <span>Eficiência e custos</span>
             </div>
           </div>
         </CardContent>
@@ -178,7 +174,7 @@ export default function Sobre() {
           <p className="text-sm text-muted-foreground mb-4">
             O portal está preparado para integrar-se com os principais sistemas de ticketing e comunicação:
           </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[
               "Jira Service Management",
               "Zendesk",
