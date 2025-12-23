@@ -21,7 +21,7 @@ export const tipoChamadoSchema = z.object({
 
 // Categoria
 export const categoriaSchema = z.object({
-  id: z.number(),
+  id: z.number().nullable(),
   text: z.string(),
 });
 

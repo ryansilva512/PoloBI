@@ -836,6 +836,7 @@ export default function Home() {
         : "0%",
       icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
       className: "bg-red-500/10 border-red-500/40",
+      link: "/registros-expirados?tab=resposta",
     },
     {
       titulo: "Qtd Atendimento Expirado",
@@ -845,6 +846,7 @@ export default function Home() {
         : "0%",
       icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
       className: "bg-red-600/10 border-red-500/50",
+      link: "/registros-expirados?tab=atendimento",
     },
   ];
 
@@ -1096,8 +1098,10 @@ export default function Home() {
             key={card.titulo}
             className={cn(
               "rounded-md shadow-sm border bg-gradient-to-br from-background via-background to-background",
-              card.className
+              card.className,
+              card.link && "cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all"
             )}
+            onClick={() => card.link && setLocation(card.link)}
           >
             <CardContent className="p-4 space-y-1">
               <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
