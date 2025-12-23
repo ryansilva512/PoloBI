@@ -16,16 +16,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import Operacional from "@/pages/operacional";
-import SLA from "@/pages/sla";
+import RegistrosExpirados from "@/pages/registros-expirados";
 import Metodologia from "@/pages/metodologia";
 import Sobre from "@/pages/sobre";
+import ManutencaoPreventiva from "@/pages/manutencao-preventiva";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/operacional" component={Operacional} />
-      <Route path="/sla" component={SLA} />
+      <Route path="/registros-expirados" component={RegistrosExpirados} />
+      <Route path="/manutencao-preventiva" component={ManutencaoPreventiva} />
       <Route path="/metodologia" component={Metodologia} />
       <Route path="/sobre" component={Sobre} />
       <Route component={NotFound} />

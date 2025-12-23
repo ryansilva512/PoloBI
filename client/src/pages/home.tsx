@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useFilters } from "@/context/FilterContext";
 import { useTicketsData } from "@/hooks/api/useTicketsData";
@@ -47,7 +47,11 @@ import {
   Activity,
   Star,
   RefreshCw,
+  Download,
+  Loader2,
 } from "lucide-react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 const META_RESPOSTA_MINUTOS = 5;
 const META_ATENDIMENTO_HORAS = 4;
@@ -144,6 +148,163 @@ export default function Home() {
   const { data: ticketsResponse, isLoading, refetch } = useTicketsData(filters, true);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  // Ref para capturar o conteúdo do relatório
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Função para exportar PDF - Relatório Estilizado
+  const exportToPDF = async () => {
+    setIsExporting(true);
+    toast({
+      title: "Gerando Relatório PDF...",
+      description: "Aguarde enquanto o relatório é criado.",
+    });
+
+    try {
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 15;
+      let y = margin;
+
+      // HEADER CINZA
+      pdf.setFillColor(51, 65, 85); // slate-700
+      pdf.rect(0, 0, pageWidth, 35, 'F');
+
+      // Logo (carregar imagem)
+      try {
+        const logoImg = new Image();
+        logoImg.crossOrigin = 'anonymous';
+        logoImg.src = '/Icone_Logo.png';
+        await new Promise((resolve) => { logoImg.onload = resolve; logoImg.onerror = resolve; });
+        if (logoImg.complete && logoImg.naturalWidth > 0) {
+          const canvas = document.createElement('canvas');
+          canvas.width = logoImg.naturalWidth;
+          canvas.height = logoImg.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(logoImg, 0, 0);
+          const logoData = canvas.toDataURL('image/png');
+          pdf.addImage(logoData, 'PNG', margin, 5, 25, 25);
+        }
+      } catch (e) { /* logo opcional */ }
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(22);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Polo BI - Relatório Visão Geral', margin + 30, 16);
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text('Dashboard Executivo de Atendimento', margin + 30, 24);
+      const periodoStr = filters.data_inicial && filters.data_final
+        ? `Período: ${format(new Date(filters.data_inicial), 'dd/MM/yyyy')} a ${format(new Date(filters.data_final), 'dd/MM/yyyy')}`
+        : 'Período: Últimos 30 dias';
+      pdf.setFontSize(9);
+      pdf.text(periodoStr, pageWidth - margin - 65, 16);
+      pdf.text(`Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, pageWidth - margin - 65, 24);
+
+      y = 45;
+
+      // KPIs
+      const kpiW = (pageWidth - margin * 2 - 40) / 5;
+      const kpis = [
+        { label: 'Total Tickets', value: String(tickets.length), c: [59, 130, 246] },
+        { label: 'Resp. em Dia', value: `${tempoMetrics.respostaEmDia}`, c: [34, 197, 94] },
+        { label: 'Atend. em Dia', value: `${tempoMetrics.atendimentoEmDia}`, c: [34, 197, 94] },
+        { label: 'Resp. Estourada', value: `${tempoMetrics.respostaEstourada}`, c: [239, 68, 68] },
+        { label: 'Atend. Expirado', value: `${tempoMetrics.atendimentoExpirado}`, c: [239, 68, 68] },
+      ];
+      kpis.forEach((kpi, i) => {
+        const x = margin + 10 + i * (kpiW + 8);
+        pdf.setFillColor(kpi.c[0], kpi.c[1], kpi.c[2]);
+        pdf.roundedRect(x, y, kpiW, 25, 2, 2, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(18);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(kpi.value, x + kpiW / 2, y + 12, { align: 'center' });
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(kpi.label, x + kpiW / 2, y + 20, { align: 'center' });
+      });
+
+      y += 35;
+
+      // TEMPOS
+      const boxW = (pageWidth - margin * 2 - 10) / 2;
+      pdf.setFillColor(30, 41, 59);
+      pdf.roundedRect(margin, y, boxW, 30, 3, 3, 'F');
+      pdf.roundedRect(margin + boxW + 10, y, boxW, 30, 3, 3, 'F');
+
+      pdf.setTextColor(96, 165, 250);
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Tempo Médio de Resposta', margin + 10, y + 12);
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(16);
+      pdf.text(formatMinutosCompleto(tempoMedioAbertura.minutos), margin + 10, y + 24);
+
+      pdf.setTextColor(52, 211, 153);
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Tempo Médio de Atendimento', margin + boxW + 20, y + 12);
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(16);
+      pdf.text(formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento), margin + boxW + 20, y + 24);
+
+      y += 40;
+
+      // RANKING
+      pdf.setTextColor(30, 41, 59);
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Top Operadores', margin, y);
+      y += 6;
+
+      pdf.setFillColor(241, 245, 249);
+      pdf.rect(margin, y, pageWidth - margin * 2, 8, 'F');
+      pdf.setTextColor(71, 85, 105);
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('#', margin + 5, y + 5.5);
+      pdf.text('Operador', margin + 20, y + 5.5);
+      pdf.text('Tickets', margin + 100, y + 5.5);
+      pdf.text('Média/Dia', margin + 140, y + 5.5);
+      y += 8;
+
+      rankingOperadores.slice(0, 10).forEach((op, i) => {
+        const bg = i % 2 === 0 ? [255, 255, 255] : [248, 250, 252];
+        pdf.setFillColor(bg[0], bg[1], bg[2]);
+        pdf.rect(margin, y, pageWidth - margin * 2, 6, 'F');
+        pdf.setTextColor(30, 41, 59);
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(`${i + 1}`, margin + 5, y + 4.5);
+        pdf.text(op.nome, margin + 20, y + 4.5);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(String(op.total), margin + 100, y + 4.5);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(op.mediaDiaria.toFixed(2), margin + 140, y + 4.5);
+        y += 6;
+      });
+
+      // FOOTER
+      pdf.setDrawColor(226, 232, 240);
+      pdf.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+      pdf.setTextColor(148, 163, 184);
+      pdf.setFontSize(8);
+      pdf.text('Polo Telecom - Business Intelligence', margin, pageHeight - 6);
+      pdf.text('Página 1', pageWidth - margin - 20, pageHeight - 6);
+
+      pdf.save(`relatorio-${format(new Date(), 'yyyy-MM-dd-HHmm')}.pdf`);
+      toast({ title: "Relatório exportado!", description: "PDF salvo com sucesso." });
+    } catch (error) {
+      console.error('Erro:', error);
+      toast({ title: "Erro", description: "Falha ao gerar PDF.", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Estado para intervalo de atualização automática
   const [refreshInterval, setRefreshInterval] = useState<number | null>(() => {
@@ -708,12 +869,33 @@ export default function Home() {
   const topOperadores = rankingOperadores.slice(0, 4);
 
   return (
-    <div className="space-y-6">
+    <div ref={reportRef} className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <PageHeader
-          titulo="Visão Geral"
-          subtitulo="Dashboard executivo inspirado no painel compartilhado"
-        />
+        <div className="flex items-center gap-4">
+          <PageHeader
+            titulo="Visão Geral"
+            subtitulo="Dashboard executivo inspirado no painel compartilhado"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportToPDF}
+            disabled={isExporting}
+            className="h-9 gap-2"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Exportando...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                Exportar PDF
+              </>
+            )}
+          </Button>
+        </div>
         <div className="flex gap-3">
           <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
             <CardHeader className="py-2 px-3">

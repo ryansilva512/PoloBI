@@ -21,6 +21,8 @@ import {
   Lightbulb,
   BarChart3,
   HelpCircle,
+  Wrench,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,9 +38,14 @@ const menuPrincipal = [
     icon: ClipboardList,
   },
   {
-    title: "SLA & Performance",
-    url: "/sla",
-    icon: Clock,
+    title: "Registros Expirados",
+    url: "/registros-expirados",
+    icon: AlertTriangle,
+  },
+  {
+    title: "Manutenção Preventiva",
+    url: "/manutencao-preventiva",
+    icon: Wrench,
   },
 ];
 
