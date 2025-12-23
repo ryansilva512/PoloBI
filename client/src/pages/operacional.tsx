@@ -230,7 +230,7 @@ export default function Operacional() {
       key: "ticketsResolvidos",
       header: "Tickets Resolvidos",
       accessor: (row: any) => (
-        <div className="text-right">
+        <div className="text-center">
           <span className="font-semibold">{row.ticketsResolvidos}</span>
         </div>
       ),
@@ -241,7 +241,7 @@ export default function Operacional() {
       key: "tempoMedioRespostaMinutos",
       header: "Tempo Resposta",
       accessor: (row: any) => (
-        <div className="text-right">
+        <div className="text-center">
           <span className="font-mono text-sm">{minutosToHoraString(row.tempoMedioRespostaMinutos)}</span>
         </div>
       ),
@@ -252,7 +252,7 @@ export default function Operacional() {
       key: "tempoMedioAtendimentoMinutos",
       header: "Tempo Atendimento",
       accessor: (row: any) => (
-        <div className="text-right">
+        <div className="text-center">
           <span className="font-mono text-sm">{minutosToHoraString(row.tempoMedioAtendimentoMinutos)}</span>
         </div>
       ),
@@ -263,7 +263,7 @@ export default function Operacional() {
       key: "totalHorasAtendimento",
       header: "Total Horas",
       accessor: (row: any) => (
-        <div className="text-right">
+        <div className="text-center">
           <span className="font-mono text-sm">{row.totalHorasAtendimento.toFixed(2)}h</span>
         </div>
       ),
@@ -308,8 +308,8 @@ export default function Operacional() {
             row.status.text === "Finalizado"
               ? "default"
               : row.status.text === "Aberto"
-              ? "destructive"
-              : "secondary"
+                ? "destructive"
+                : "secondary"
           }
         >
           {row.status.text}
@@ -432,32 +432,6 @@ export default function Operacional() {
         </CardContent>
       </Card>
 
-      {/* Apenas cards-chave */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KPICard
-          titulo="Em Aberto"
-          valor={aggregatedData.ticketsEmAberto.toLocaleString()}
-          icone={<AlertTriangle className="w-5 h-5" />}
-          destaque={aggregatedData.ticketsEmAberto > 20 ? "danger" : "warning"}
-        />
-        <KPICard
-          titulo="Qtd de Status"
-          valor={aggregatedData.distribuicaoPorStatus.length.toString()}
-          icone={<AlertTriangle className="w-5 h-5" />}
-          destaque="success"
-        />
-        <KPICard
-          titulo="Tempo Medio de Abertura"
-          valor={tempoMedioAberturaFormatado}
-          icone={<Clock4 className="w-5 h-5" />}
-          destaque="neutral"
-          tooltip={
-            tempoMedioAbertura.total
-              ? `Media entre data_criacao e data_inicial com outliers removidos (${tempoMedioAbertura.considerados}/${tempoMedioAbertura.total} tickets).`
-              : "Media entre data_criacao e data_inicial dos chamados com datas validas."
-          }
-        />
-      </div>
 
       {/* Operadores Table */}
       <Card>
