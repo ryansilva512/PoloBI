@@ -16,7 +16,6 @@ import {
   ClipboardList,
   Clock,
   SmilePlus,
-  DollarSign,
   Search,
   BookOpen,
   Lightbulb,
@@ -41,11 +40,6 @@ const menuPrincipal = [
     url: "/sla",
     icon: Clock,
   },
-  {
-    title: "Eficiência & Custos",
-    url: "/eficiencia",
-    icon: DollarSign,
-  },
 ];
 
 const menuReferencia = [
@@ -63,17 +57,29 @@ const menuReferencia = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  // Usa exatamente o nome do arquivo na pasta public
+  const logoPrimary = "/Icone_Logo.png";
+  const logoFallback = "/logo-polo.svg";
 
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
-            <BarChart3 className="h-5 w-5 text-primary-foreground" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-md bg-transparent">
+            <img
+              src={logoPrimary}
+              alt="Polo BI"
+              className="h-12 w-12 object-contain"
+              onError={(e) => {
+                const img = e.currentTarget as HTMLImageElement;
+                if (img.src.endsWith(logoFallback)) return;
+                img.src = logoFallback;
+              }}
+            />
           </div>
           <div>
-            <h1 className="text-base font-semibold tracking-tight">BI Help Desk</h1>
-            <p className="text-xs text-muted-foreground">Portal de Inteligência</p>
+            <h1 className="text-base font-semibold tracking-tight">Polo BI</h1>
+            <p className="text-xs text-muted-foreground">Polo Telecom</p>
           </div>
         </Link>
       </SidebarHeader>
