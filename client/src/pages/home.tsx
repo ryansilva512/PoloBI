@@ -16,6 +16,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { DateRange } from "react-day-picker";
 import {
   Select,
   SelectContent,
@@ -50,7 +52,6 @@ import {
   Download,
   Loader2,
 } from "lucide-react";
-import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 const META_RESPOSTA_MINUTOS = 5;
@@ -314,6 +315,9 @@ export default function Home() {
 
   const [previousTicketCount, setPreviousTicketCount] = useState<number | null>(null);
 
+  // Mapa para rastrear status dos tickets: { codigo: status.text }
+  const previousTicketStatusesRef = useRef<Map<number, string>>(new Map());
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
 
@@ -332,87 +336,102 @@ export default function Home() {
       console.log('Auto-refresh: atualizando dados...');
 
       const result = await refetch();
-      const newTicketCount = result.data?.lista?.length || 0;
+      const newTickets = result.data?.lista || [];
+      const newTicketCount = newTickets.length;
 
-      // Verifica se há novos tickets
-      if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
-        const newTickets = newTicketCount - previousTicketCount;
+      // Detectar tickets que foram finalizados (mudança de status para "Finalizado")
+      const finalizados: Array<{ codigo: number; assunto: string }> = [];
+      const newStatusMap = new Map<number, string>();
 
-        // Função para tocar som de alerta chamativo
-        const playAlertSound = () => {
+      newTickets.forEach((ticket) => {
+        const codigo = ticket.codigo;
+        const statusText = ticket.status?.text || '';
+        newStatusMap.set(codigo, statusText);
+
+        // Verificar se o ticket estava com outro status antes e agora está "Finalizado"
+        const previousStatus = previousTicketStatusesRef.current.get(codigo);
+        if (previousStatus && previousStatus !== 'Finalizado' && statusText === 'Finalizado') {
+          finalizados.push({ codigo, assunto: ticket.assunto });
+        }
+      });
+
+      // Atualizar o mapa de status
+      previousTicketStatusesRef.current = newStatusMap;
+
+      // Notificar sobre tickets finalizados
+      if (finalizados.length > 0) {
+        // Função para tocar som de sucesso
+        const playSuccessSound = () => {
           try {
             const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-
-            // Tocar 3 beeps rápidos e chamatitvos
-            const playBeep = (startTime: number, frequency: number, duration: number) => {
+            const playTone = (startTime: number, frequency: number, duration: number) => {
               const oscillator = audioContext.createOscillator();
               const gainNode = audioContext.createGain();
-
               oscillator.connect(gainNode);
               gainNode.connect(audioContext.destination);
-
               oscillator.frequency.value = frequency;
-              oscillator.type = 'square';
-
-              gainNode.gain.setValueAtTime(0.3, startTime);
+              oscillator.type = 'sine';
+              gainNode.gain.setValueAtTime(0.2, startTime);
               gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-
               oscillator.start(startTime);
               oscillator.stop(startTime + duration);
             };
-
-            // Sequência de beeps ascendentes - muito chamativa
             const now = audioContext.currentTime;
-            playBeep(now, 800, 0.15);
-            playBeep(now + 0.2, 1000, 0.15);
-            playBeep(now + 0.4, 1200, 0.15);
-            playBeep(now + 0.6, 1500, 0.3);
+            playTone(now, 523, 0.2);      // C5
+            playTone(now + 0.15, 659, 0.2); // E5
+            playTone(now + 0.3, 784, 0.4);  // G5
           } catch (e) {
             console.log('Audio não suportado');
           }
         };
 
-        // Função para falar usando Web Speech API
-        const speakNotification = (text: string) => {
+        // Função para falar
+        const speakFinalization = (text: string) => {
           if ('speechSynthesis' in window) {
-            // Cancelar qualquer fala anterior
             window.speechSynthesis.cancel();
-
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = 'pt-BR';
-            utterance.rate = 1.0;
-            utterance.pitch = 1.1;
+            utterance.rate = 0.95;
+            utterance.pitch = 1.0;
             utterance.volume = 1.0;
-
-            // Tentar usar voz em português brasileiro
             const voices = window.speechSynthesis.getVoices();
             const ptVoice = voices.find(voice => voice.lang.includes('pt'));
-            if (ptVoice) {
-              utterance.voice = ptVoice;
-            }
-
+            if (ptVoice) utterance.voice = ptVoice;
             window.speechSynthesis.speak(utterance);
           }
         };
 
-        // Tocar o som de alerta
-        playAlertSound();
+        playSuccessSound();
 
-        // Falar a notificação após o som
-        setTimeout(() => {
-          if (newTickets === 1) {
-            speakNotification('Atenção! Novo chamado Finalizado!');
-          } else {
-            speakNotification(`Atenção! ${newTickets} novos chamados Finalizados!`);
-          }
-        }, 800);
-
-        toast({
-          title: `🔔 ${newTickets} novo(s) chamado(s)!`,
-          description: "Ticket detectado durante atualização automática",
-          duration: 5000,
+        // Mostrar toast para cada ticket finalizado (máximo 3 para não poluir)
+        finalizados.slice(0, 3).forEach((ticket, index) => {
+          setTimeout(() => {
+            toast({
+              title: '✅ Chamado Finalizado!',
+              description: `"${ticket.assunto}" (Código: ${ticket.codigo})`,
+              duration: 6000,
+            });
+          }, index * 1000);
         });
+
+        // Se houver mais de 3, mostrar um resumo
+        if (finalizados.length > 3) {
+          setTimeout(() => {
+            toast({
+              title: `📋 +${finalizados.length - 3} outros finalizados`,
+              description: 'Múltiplos chamados foram concluídos',
+              duration: 4000,
+            });
+          }, 3500);
+        }
+
+        // Falar o primeiro finalizado
+        setTimeout(() => {
+          const primeiro = finalizados[0];
+          speakFinalization(`Atenção! O chamado ${primeiro.assunto} foi finalizado!`);
+        }, 500);
       } else {
+        // Se não houve finalizações, mostrar atualização silenciosa
         toast({
           title: "Dados atualizados",
           description: "Dashboard atualizado automaticamente",
@@ -444,12 +463,19 @@ export default function Home() {
 
   const tickets = ticketsResponse?.lista ?? [];
 
-  // Atualiza contagem inicial de tickets
+  // Atualiza contagem inicial de tickets e inicializa mapa de status
   useEffect(() => {
     if (tickets.length > 0 && previousTicketCount === null) {
       setPreviousTicketCount(tickets.length);
+
+      // Inicializar o mapa de status com os tickets atuais
+      const statusMap = new Map<number, string>();
+      tickets.forEach((ticket) => {
+        statusMap.set(ticket.codigo, ticket.status?.text || '');
+      });
+      previousTicketStatusesRef.current = statusMap;
     }
-  }, [tickets.length, previousTicketCount]);
+  }, [tickets, previousTicketCount]);
 
   const dataInicialDate = useMemo(
     () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
@@ -777,6 +803,25 @@ export default function Home() {
     [filters.data_final]
   );
 
+  // Estado para o DateRangePicker
+  const dateRange = useMemo((): DateRange | undefined => {
+    const from = dataInicialDateInput ?? undefined;
+    const to = dataFinalDateInput ?? undefined;
+    if (!from && !to) return undefined;
+    return { from, to };
+  }, [dataInicialDateInput, dataFinalDateInput]);
+
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    if (!range) {
+      updateFilters({ data_inicial: undefined, data_final: undefined });
+      return;
+    }
+    updateFilters({
+      data_inicial: range.from ? format(startOfDay(range.from), "yyyy-MM-dd HH:mm:ss") : undefined,
+      data_final: range.to ? format(endOfDay(range.to), "yyyy-MM-dd HH:mm:ss") : undefined,
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -929,124 +974,12 @@ export default function Home() {
         <CardContent className="py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4 sm:flex-wrap">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Data inicial</span>
-              <Input
-                type="date"
-                value={dataInicialDateInput ? format(dataInicialDateInput, "yyyy-MM-dd") : ""}
-                onChange={(e) => handleDateChange("start", e.target.value)}
-                className="sm:max-w-xs"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Data final</span>
-              <Input
-                type="date"
-                value={dataFinalDateInput ? format(dataFinalDateInput, "yyyy-MM-dd") : ""}
-                onChange={(e) => handleDateChange("end", e.target.value)}
-                className="sm:max-w-xs"
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                updateFilters({
-                  data_inicial: undefined,
-                  data_final: undefined,
-                })
-              }
-            >
-              Limpar datas
-            </Button>
-            <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase text-muted-foreground">Período</span>
-              <Select
-                value=""
-                onValueChange={(value) => {
-                  const hoje = new Date();
-                  let dataInicio: Date;
-                  let dataFim = hoje;
-
-                  switch (value) {
-                    case "week_to_date":
-                      const dayOfWeek = hoje.getDay();
-                      const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-                      dataInicio = new Date(hoje);
-                      dataInicio.setDate(hoje.getDate() - diffToMonday);
-                      break;
-                    case "month_to_date":
-                      dataInicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-                      break;
-                    case "last_7_days":
-                      dataInicio = new Date(hoje);
-                      dataInicio.setDate(hoje.getDate() - 6);
-                      break;
-                    case "last_14_days":
-                      dataInicio = new Date(hoje);
-                      dataInicio.setDate(hoje.getDate() - 13);
-                      break;
-                    case "last_30_days":
-                      dataInicio = new Date(hoje);
-                      dataInicio.setDate(hoje.getDate() - 29);
-                      break;
-                    default:
-                      return;
-                  }
-
-                  updateFilters({
-                    data_inicial: format(startOfDay(dataInicio), "yyyy-MM-dd HH:mm:ss"),
-                    data_final: format(endOfDay(dataFim), "yyyy-MM-dd HH:mm:ss"),
-                  });
-                }}
-              >
-                <SelectTrigger className="sm:w-[180px]">
-                  <SelectValue placeholder="Selecionar período" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PERIOD_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Mês</span>
-              <Select
-                value=""
-                onValueChange={(value) => {
-                  const [year, month] = value.split("-").map(Number);
-                  const dataInicio = new Date(year, month, 1);
-                  const dataFim = new Date(year, month + 1, 0); // Último dia do mês
-
-                  updateFilters({
-                    data_inicial: format(startOfDay(dataInicio), "yyyy-MM-dd HH:mm:ss"),
-                    data_final: format(endOfDay(dataFim), "yyyy-MM-dd HH:mm:ss"),
-                  });
-                }}
-              >
-                <SelectTrigger className="sm:w-[180px]">
-                  <SelectValue placeholder="Selecionar mês" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const date = new Date();
-                    date.setMonth(date.getMonth() - i);
-                    const value = `${date.getFullYear()}-${date.getMonth()}`;
-                    const monthNames = [
-                      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-                      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-                    ];
-                    const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-                    return (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <DateRangePicker
+                dateRange={dateRange}
+                onDateRangeChange={handleDateRangeChange}
+                placeholder="Selecione o período"
+              />
             </div>
             <div className="flex flex-col gap-1 ml-auto">
               <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1">
