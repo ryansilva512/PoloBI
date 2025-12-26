@@ -6,9 +6,9 @@ import {
 } from "@shared/schema";
 
 // Use o proxy do servidor para evitar CORS e proteger a API KEY.
+// O TOKEN é gerenciado APENAS no servidor via .env
 // As requisições irão para: POST /api/proxy/relatorio-atendimento/listagem
 const API_BASE_URL = "/api/proxy";
-const API_KEY = "dMHE29hFX9YUOQWFXlu0QGeft2MOQEoBS6R7UEnalEjPodSl0j0BE5krXyxGPJax9tVJz6RblIAHR5OVpblnvhQQ2WDjTZEe9GoF7";
 
 class MilvusApiClient {
   private async request<T>(
@@ -18,10 +18,10 @@ class MilvusApiClient {
   ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
 
+    // NÃO enviar token do cliente - o servidor proxy adiciona automaticamente
     const options: RequestInit = {
       method,
       headers: {
-        "Authorization": API_KEY,
         "Content-Type": "application/json",
       },
     };

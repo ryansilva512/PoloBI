@@ -11,14 +11,14 @@ export async function registerRoutes(
   app.get("/api/test-connectivity", async (req, res) => {
     try {
       const response = await fetch("https://httpbin.org/get");
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: "Internet connection OK",
         status: response.status
       });
     } catch (error: any) {
-      res.json({ 
-        success: false, 
+      res.json({
+        success: false,
         message: "Internet connection FAILED",
         error: error.message,
         cause: error.cause?.message || null
@@ -29,14 +29,13 @@ export async function registerRoutes(
   // Test MILVUS API connection
   app.get("/api/test-milvus", async (req, res) => {
     try {
-      // Tenta carregar do .env, se não conseguir usa hardcoded
-      const API_KEY = process.env.MILVUS_API_KEY || "dMHE29hFX9YUOQWFXlu0QGeft2MOQEoBS6R7UEnalEjPodSl0j0BE5krXyxGPJax9tVJz6RblIAHR5OVpblnvhQQ2WDjTZEe9GoF7";
+      // Token DEVE estar no .env por segurança
+      const API_KEY = process.env.MILVUS_API_KEY;
       const MILVUS_URL = "https://apiintegracao.milvus.com.br/api/relatorio-atendimento/listagem";
-      
+
       console.log("=== TEST MILVUS ===");
-      console.log("API_KEY vazia?", !API_KEY);
-      console.log("API_KEY length:", API_KEY.length);
-      
+      console.log("API_KEY configurada:", !!API_KEY);
+
       if (!API_KEY) {
         return res.json({
           success: false,
@@ -45,14 +44,14 @@ export async function registerRoutes(
           configured: false
         });
       }
-      
+
       console.log("Testing MILVUS API at:", MILVUS_URL);
-      
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
 
       console.log("Tentando com header 'Authorization'");
-      const response = await fetch(urlWithPage, {
+      const response = await fetch(MILVUS_URL, {
         method: "POST",
         headers: {
           "Authorization": API_KEY,
@@ -76,9 +75,9 @@ export async function registerRoutes(
           statusText: response.statusText,
           bodyLength: errorText.length
         });
-        
-        return res.json({ 
-          success: false, 
+
+        return res.json({
+          success: false,
           error: `MILVUS API returned ${response.status}`,
           status: response.status,
           statusText: response.statusText,
@@ -91,9 +90,9 @@ export async function registerRoutes(
         dataLength: data?.lista?.length,
       });
 
-      res.json({ 
-        success: true, 
-        status: response.status, 
+      res.json({
+        success: true,
+        status: response.status,
         statusText: response.statusText,
         dataLength: data?.lista?.length || 0,
         meta: data?.meta,
@@ -105,8 +104,8 @@ export async function registerRoutes(
         cause: error.cause?.message,
         name: error.name
       });
-      res.json({ 
-        success: false, 
+      res.json({
+        success: false,
         error: error.message,
         code: error.code,
         cause: error.cause?.message || null,
@@ -114,16 +113,23 @@ export async function registerRoutes(
     }
   });
 
-  
-// Proxy para MILVUS API - relatorio-atendimento
+
   app.post("/api/proxy/relatorio-atendimento/listagem", async (req, res) => {
-    const API_KEY = process.env.MILVUS_API_KEY || "dMHE29hFX9YUOQWFXlu0QGeft2MOQEoBS6R7UEnalEjPodSl0j0BE5krXyxGPJax9tVJz6RblIAHR5OVpblnvhQQ2WDjTZEe9GoF7";
+    // Token DEVE estar no .env por segurança
+    const API_KEY = process.env.MILVUS_API_KEY;
     const MILVUS_URL = "https://apiintegracao.milvus.com.br/api/relatorio-atendimento/listagem";
 
+    if (!API_KEY) {
+      console.error("ERRO: MILVUS_API_KEY não configurada no .env!");
+      return res.status(500).json({
+        success: false,
+        error: "MILVUS_API_KEY não configurada",
+        message: "Adicione a chave no arquivo .env"
+      });
+    }
+
     console.log("=== MILVUS Proxy Request ===");
-    console.log("API_KEY presente:", !!API_KEY);
-    console.log("API_KEY comprimento:", API_KEY.length);
-    console.log("API_KEY valor:", API_KEY.substring(0, 10) + "...");
+    console.log("API_KEY configurada: sim");
     console.log("URL:", MILVUS_URL);
     console.log("Request body com filtros:", {
       data_inicial: req.body?.data_inicial,
@@ -203,7 +209,7 @@ export async function registerRoutes(
           "Authorization": API_KEY,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           ...baseBody,
           pagina: page,
         }),
@@ -280,7 +286,7 @@ export async function registerRoutes(
     }
   });
 
-// Dashboard Summary
+  // Dashboard Summary
   app.get("/api/dashboard/summary", async (req, res) => {
     try {
       const summary = await storage.getDashboardSummary();
