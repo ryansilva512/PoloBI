@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   format,
   startOfDay,
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Clock4 } from "lucide-react";
 import type { TicketRaw } from "@shared/schema";
+import { newTicketsStore } from "@/stores/newTicketsStore";
 
 const DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
@@ -53,6 +54,23 @@ export default function Operacional() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [protocoloTerm, setProtocoloTerm] = useState("");
+
+  // Estado para IDs de chamados recém-abertos (para destaque visual)
+  const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set());
+  // Estado para armazenar detalhes dos novos chamados
+  const [newTicketsData, setNewTicketsData] = useState<Map<number, any>>(new Map());
+
+  // Subscrever ao store de novos chamados
+  useEffect(() => {
+    const unsubscribe = newTicketsStore.subscribe(tickets => {
+      setHighlightedIds(new Set(tickets.keys()));
+      setNewTicketsData(tickets);
+    });
+    // Carregar estado inicial
+    setHighlightedIds(newTicketsStore.getIds());
+    setNewTicketsData(newTicketsStore.getTickets());
+    return unsubscribe;
+  }, []);
 
   const dataInicialDate = useMemo(() => parseDateSafely(filters.data_inicial), [filters.data_inicial]);
   const dataFinalDate = useMemo(() => parseDateSafely(filters.data_final), [filters.data_final]);
@@ -276,7 +294,23 @@ export default function Operacional() {
     {
       key: "codigo",
       header: "Codigo",
-      accessor: (row: TicketRaw) => <span className="font-mono font-bold text-sm">{row.codigo}</span>,
+      accessor: (row: TicketRaw) => (
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-bold text-sm">{row.codigo}</span>
+          {highlightedIds.has(row.codigo) && (
+            <Badge
+              variant="destructive"
+              className="animate-pulse text-xs px-1.5 py-0.5"
+              onClick={(e) => {
+                e.stopPropagation();
+                newTicketsStore.clearId(row.codigo);
+              }}
+            >
+              NOVO
+            </Badge>
+          )}
+        </div>
+      ),
       sortable: true,
       sortKey: (row: TicketRaw) => row.codigo,
     },
@@ -452,6 +486,48 @@ export default function Operacional() {
           />
         </CardContent>
       </Card>
+
+      {/* Novos Chamados Abertos (Dashboard de Alertas) */}
+      {highlightedIds.size > 0 && (
+        <Card className="border-red-500/50 bg-red-500/5 animate-pulse">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-red-600 flex items-center gap-2">
+              🔔 Chamados Recém-Abertos ({highlightedIds.size})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {Array.from(newTicketsData.values()).map((ticket) => (
+                <div
+                  key={ticket.codigo}
+                  className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-red-700 dark:text-red-400">
+                        #{ticket.codigo}
+                      </span>
+                      <Badge variant="destructive" className="text-xs">NOVO</Badge>
+                    </div>
+                    <p className="font-medium text-sm mt-1">{ticket.assunto}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {ticket.nome_fantasia || 'Cliente não identificado'} • {ticket.nome || 'Não atribuído'}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => newTicketsStore.clearId(ticket.codigo)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    Marcar como visto
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tickets Table */}
       <Card>

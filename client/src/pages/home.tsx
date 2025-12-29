@@ -53,6 +53,7 @@ import {
   Loader2,
 } from "lucide-react";
 import jsPDF from "jspdf";
+import { newTicketsStore } from "@/stores/newTicketsStore";
 
 const META_RESPOSTA_MINUTOS = 5;
 const META_ATENDIMENTO_HORAS = 4;
@@ -318,8 +319,143 @@ export default function Home() {
   // Mapa para rastrear status dos tickets: { codigo: status.text }
   const previousTicketStatusesRef = useRef<Map<number, string>>(new Map());
 
+  // Set para rastrear IDs de chamados abertos anteriores
+  const previousOpenTicketIdsRef = useRef<Set<number>>(new Set());
+  const openTicketsInitializedRef = useRef<boolean>(false);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
+
+  // Estado para exibir contagem de chamados abertos
+  const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
+
+  // Função para buscar chamados abertos
+  const fetchOpenTickets = async () => {
+    try {
+      const response = await fetch('/api/proxy/chamado/listagem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'ChamadosAbertos', total_registros: 100 }),
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data?.lista || [];
+    } catch (e) {
+      console.error('Erro ao buscar chamados abertos:', e);
+      return [];
+    }
+  };
+
+  // Função para tocar som de alerta (novo chamado)
+  const playNewTicketSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playBeep = (startTime: number, frequency: number, duration: number) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'square';
+        gainNode.gain.setValueAtTime(0.25, startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+        oscillator.start(startTime);
+        oscillator.stop(startTime + duration);
+      };
+      const now = audioContext.currentTime;
+      // Sequência de alerta urgente
+      playBeep(now, 880, 0.1);
+      playBeep(now + 0.15, 880, 0.1);
+      playBeep(now + 0.3, 1100, 0.1);
+      playBeep(now + 0.45, 1100, 0.1);
+      playBeep(now + 0.6, 1320, 0.3);
+    } catch (e) {
+      console.log('Audio não suportado');
+    }
+  };
+
+  // Função para falar novo chamado (aguarda vozes carregarem)
+  const speakNewTicket = (text: string) => {
+    console.log('🔊 speakNewTicket chamado com:', text);
+
+    if (!('speechSynthesis' in window)) {
+      console.error('❌ SpeechSynthesis não suportado neste navegador');
+      return;
+    }
+
+    const speak = () => {
+      try {
+        console.log('🔊 Executando speak()...');
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'pt-BR';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.1;
+        utterance.volume = 1.0;
+
+        const voices = window.speechSynthesis.getVoices();
+        console.log('🔊 Vozes disponíveis:', voices.length);
+
+        const ptVoice = voices.find(voice => voice.lang.includes('pt'));
+        if (ptVoice) {
+          console.log('🔊 Voz pt-BR encontrada:', ptVoice.name);
+          utterance.voice = ptVoice;
+        } else {
+          console.log('🔊 Usando voz padrão (pt-BR não encontrada)');
+        }
+
+        utterance.onstart = () => console.log('🔊 Iniciando fala...');
+        utterance.onend = () => console.log('🔊 Fala concluída!');
+        utterance.onerror = (e) => console.error('❌ Erro na fala:', e.error);
+
+        window.speechSynthesis.speak(utterance);
+        console.log('🔊 Fala enfileirada com sucesso');
+      } catch (error) {
+        console.error('❌ Erro ao tentar falar:', error);
+      }
+    };
+
+    // Se as vozes já estão carregadas, fala imediatamente
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      console.log('🔊 Vozes já carregadas, falando imediatamente');
+      speak();
+    } else {
+      console.log('🔊 Aguardando carregamento das vozes...');
+      // Aguarda as vozes carregarem
+      const onVoicesChanged = () => {
+        console.log('🔊 Vozes carregadas!');
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+        speak();
+      };
+      window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+
+      // Timeout fallback caso as vozes não carreguem
+      setTimeout(() => {
+        const nowVoices = window.speechSynthesis.getVoices();
+        if (nowVoices.length > 0) {
+          console.log('🔊 Fallback: vozes carregadas após timeout');
+          window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+          speak();
+        } else {
+          console.error('❌ Vozes não carregaram após timeout');
+        }
+      }, 1000);
+    }
+  };
+
+  // Pré-carregar vozes do speechSynthesis ao montar o componente
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      // Força o carregamento das vozes
+      window.speechSynthesis.getVoices();
+      // Chrome carrega vozes de forma assíncrona
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+  }, []);
 
   // Auto-refresh effect
   useEffect(() => {
@@ -335,11 +471,99 @@ export default function Home() {
       setIsRefreshing(true);
       console.log('Auto-refresh: atualizando dados...');
 
+      // 1. Buscar dados de atendimento (existente)
       const result = await refetch();
       const newTickets = result.data?.lista || [];
       const newTicketCount = newTickets.length;
 
-      // Detectar tickets que foram finalizados (mudança de status para "Finalizado")
+      // 2. Buscar chamados abertos (NOVO)
+      const openTickets = await fetchOpenTickets();
+      console.log('📋 Chamados abertos recebidos:', openTickets.length);
+      setOpenTicketsCount(openTickets.length);
+
+      // 3. Detectar NOVOS chamados abertos
+      const currentOpenIds = new Set<number>(openTickets.map((t: any) => t.codigo || t.id));
+      console.log('📋 IDs atuais:', Array.from(currentOpenIds));
+      console.log('📋 IDs anteriores:', Array.from(previousOpenTicketIdsRef.current));
+      console.log('📋 Inicializado?', openTicketsInitializedRef.current);
+
+      const novosChamados: Array<{
+        codigo: number;
+        assunto: string;
+        nome_fantasia?: string;
+        data_criacao?: string;
+        status?: { text: string };
+        mesa_trabalho?: { text: string };
+        nome?: string;
+      }> = [];
+
+      if (openTicketsInitializedRef.current) {
+        openTickets.forEach((ticket: any) => {
+          const codigo = ticket.codigo || ticket.id;
+          if (!previousOpenTicketIdsRef.current.has(codigo)) {
+            console.log('🆕 NOVO CHAMADO DETECTADO:', codigo, ticket.assunto);
+            novosChamados.push({
+              codigo,
+              assunto: ticket.assunto || 'Sem assunto',
+              nome_fantasia: ticket.nome_fantasia || ticket.cliente || '',
+              data_criacao: ticket.data_criacao || ticket.data_abertura || new Date().toISOString(),
+              status: ticket.status || { text: 'Aberto' },
+              mesa_trabalho: ticket.mesa_trabalho || { text: 'Suporte' },
+              nome: ticket.nome || ticket.operador || 'Não atribuído',
+            });
+          }
+        });
+      } else {
+        console.log('📋 Primeira execução - inicializando IDs base');
+        openTicketsInitializedRef.current = true;
+      }
+
+      // Atualizar set de IDs abertos
+      previousOpenTicketIdsRef.current = currentOpenIds;
+
+      // 4. Alertar sobre NOVOS chamados abertos
+      console.log('📋 Total de novos chamados detectados:', novosChamados.length);
+
+      if (novosChamados.length > 0) {
+        console.log('🔔 DISPARANDO NOTIFICAÇÃO DE VOZ!');
+        playNewTicketSound();
+
+        // Registrar novos chamados no store para destaque na Gestão de Chamados
+        newTicketsStore.addTickets(novosChamados);
+
+        novosChamados.slice(0, 2).forEach((ticket, index) => {
+          setTimeout(() => {
+            toast({
+              title: '🔔 Novo chamado aberto!',
+              description: `"${ticket.assunto}" (Código: ${ticket.codigo})`,
+              duration: 8000,
+            });
+          }, index * 1200);
+        });
+
+        if (novosChamados.length > 2) {
+          setTimeout(() => {
+            toast({
+              title: `📢 +${novosChamados.length - 2} novos chamados`,
+              description: 'Múltiplos chamados foram abertos',
+              duration: 5000,
+            });
+          }, 3000);
+        }
+
+        // Notificação por voz corrigida
+        setTimeout(() => {
+          console.log('🔊 Chamando speakNewTicket...');
+          if (novosChamados.length === 1) {
+            const primeiro = novosChamados[0];
+            speakNewTicket(`Atenção! Foi aberto um chamado com o Assunto ${primeiro.assunto}!`);
+          } else {
+            speakNewTicket(`Atenção! Foram abertos ${novosChamados.length} chamados!`);
+          }
+        }, 300);
+      }
+
+      // 5. Detectar tickets FINALIZADOS (existente)
       const finalizados: Array<{ codigo: number; assunto: string }> = [];
       const newStatusMap = new Map<number, string>();
 
@@ -401,7 +625,10 @@ export default function Home() {
           }
         };
 
-        playSuccessSound();
+        // Só tocar som de finalização se não tiver novos chamados (para não sobrepor)
+        if (novosChamados.length === 0) {
+          playSuccessSound();
+        }
 
         // Mostrar toast para cada ticket finalizado (máximo 3 para não poluir)
         finalizados.slice(0, 3).forEach((ticket, index) => {
@@ -411,7 +638,7 @@ export default function Home() {
               description: `"${ticket.assunto}" (Código: ${ticket.codigo})`,
               duration: 6000,
             });
-          }, index * 1000);
+          }, (novosChamados.length > 0 ? 4000 : 0) + index * 1000);
         });
 
         // Se houver mais de 3, mostrar um resumo
@@ -422,19 +649,19 @@ export default function Home() {
               description: 'Múltiplos chamados foram concluídos',
               duration: 4000,
             });
-          }, 3500);
+          }, (novosChamados.length > 0 ? 4000 : 0) + 3500);
         }
 
-        // Falar o primeiro finalizado
+        // Falar o primeiro finalizado (com delay se tiver novos chamados)
         setTimeout(() => {
           const primeiro = finalizados[0];
           speakFinalization(`Atenção! O chamado ${primeiro.assunto} foi finalizado!`);
-        }, 500);
-      } else {
-        // Se não houve finalizações, mostrar atualização silenciosa
+        }, novosChamados.length > 0 ? 5000 : 500);
+      } else if (novosChamados.length === 0) {
+        // Se não houve finalizações nem novos, mostrar atualização silenciosa
         toast({
           title: "Dados atualizados",
-          description: "Dashboard atualizado automaticamente",
+          description: `Dashboard atualizado • ${openTickets.length} chamado(s) aberto(s)`,
           duration: 2000,
         });
       }
@@ -1017,6 +1244,23 @@ export default function Home() {
                   title="Atualizar agora"
                 >
                   <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    playNewTicketSound();
+                    speakNewTicket("Teste de áudio. Atenção! Foi aberto um chamado de teste!");
+                    toast({
+                      title: "🔊 Teste de Áudio",
+                      description: "Se você ouviu o som e a voz, está funcionando!",
+                      duration: 5000,
+                    });
+                  }}
+                  className="h-9 text-xs"
+                  title="Testar notificação por voz"
+                >
+                  🔊 Testar Voz
                 </Button>
               </div>
             </div>

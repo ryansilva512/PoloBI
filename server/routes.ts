@@ -113,7 +113,7 @@ export async function registerRoutes(
     }
   });
 
-
+  // Proxy for MILVUS relatorio-atendimento API
   app.post("/api/proxy/relatorio-atendimento/listagem", async (req, res) => {
     // Token DEVE estar no .env por segurança
     const API_KEY = process.env.MILVUS_API_KEY;
@@ -165,16 +165,12 @@ export async function registerRoutes(
         type === "start"
           ? new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0)
           : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 23, 59, 59);
-      // A API retorna datas no formato "yyyy-MM-dd", entãoutilizamos o mesmo formato ao enviar.
       return format(adjusted, "yyyy-MM-dd");
     };
 
-    // A API do MILVUS só respeita paginaÇõÇœ se vier na query (?pagina=X&limit=Y).
-    // O limit parece fixo em 50 apesar dos parÇômetros; usamos o informado ou default 50.
     const pageSize = req.body?.limit ?? req.body?.per_page ?? 50;
     const pageParam = req.body?.pagina ?? req.body?.page ?? 1;
 
-    // A doc oficial exige que os filtros venham em "filtro_body"
     const filtroBody: Record<string, any> = {};
     const addIf = (key: string, value: any) => {
       if (value !== undefined && value !== null && value !== "") {
@@ -188,7 +184,7 @@ export async function registerRoutes(
 
     const baseBody = {
       filtro_body: filtroBody,
-      total_registros: pageSize, // seguiu a doc (default 50, max 1000)
+      total_registros: pageSize,
     };
 
     console.log("Payload enviado para MILVUS (normalizado):", {
@@ -232,7 +228,6 @@ export async function registerRoutes(
     };
 
     try {
-      // primeira pÇágina
       const firstPage = await fetchPage(1);
       const perPage = firstPage?.meta?.per_page || firstPage?.meta?.perPage || pageSize || 50;
       const totalFromMeta = firstPage?.meta?.total || 0;
@@ -257,7 +252,6 @@ export async function registerRoutes(
       }
 
       const combinedResponse = {
-        // meta reescrito para representar um único "lote" já agregado
         meta: {
           ...firstPage.meta,
           current_page: 1,
@@ -458,6 +452,83 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // Proxy para API de Chamados com filtro de status
+  // ============================================
+  app.post("/api/proxy/chamado/listagem", async (req, res) => {
+    const API_KEY = process.env.MILVUS_API_KEY;
+    const MILVUS_URL = "https://apiintegracao.milvus.com.br/api/chamado/listagem";
+
+    if (!API_KEY) {
+      console.error("ERRO: MILVUS_API_KEY não configurada no .env!");
+      return res.status(500).json({
+        success: false,
+        error: "MILVUS_API_KEY não configurada",
+        message: "Adicione a chave no arquivo .env"
+      });
+    }
+
+    // Extrair parâmetros do request
+    const { status = "ChamadosAbertos", pagina = 1, total_registros = 50 } = req.body;
+
+    console.log("=== CHAMADOS Proxy Request ===");
+    console.log("Status:", status);
+    console.log("Pagina:", pagina);
+
+    // Construir body conforme documentação Milvus
+    const milvusBody = {
+      filtro_body: {
+        cliente_token: "",
+        status: status
+      },
+      is_descending: true,
+      order_by: "data_criacao",
+      total_registros: total_registros,
+      pagina: pagina
+    };
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch(MILVUS_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(milvusBody),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("MILVUS Chamados API error:", response.status, errorText);
+        return res.status(response.status).json({
+          success: false,
+          error: `API retornou ${response.status}`,
+          details: errorText
+        });
+      }
+
+      const data = await response.json();
+      console.log("MILVUS Chamados API success:", {
+        total: data?.meta?.paginate?.total,
+        registros: data?.lista?.length
+      });
+
+      res.json(data);
+    } catch (error: any) {
+      console.error("MILVUS Chamados proxy error:", error.message);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        code: error.code
+      });
+    }
+  });
+
   return httpServer;
 }
-

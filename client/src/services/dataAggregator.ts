@@ -139,18 +139,26 @@ const calculateOperatorMetrics = (
 
     const data = operadorMap.get(nomeOperador)!;
 
-    // Converter horas para minutos
-    const tempoResposta = horaStringToMinutos(ticket.horas_operador);
-    const tempoAtendimento = horaStringToMinutos(ticket.total_horas_atendimento);
-    const horasOperador = horaStringToMinutos(ticket.horas_operador);
+    // Tempo de Resposta = data_inicial - data_criacao (em minutos)
+    const dataCriacao = ticket.data_criacao ? new Date(ticket.data_criacao) : null;
+    const dataInicial = ticket.data_inicial ? new Date(ticket.data_inicial) : null;
 
-    if (tempoResposta > 0) {
-      data.temposResposta.push(tempoResposta);
+    if (dataCriacao && dataInicial && !isNaN(dataCriacao.getTime()) && !isNaN(dataInicial.getTime())) {
+      const diffMs = dataInicial.getTime() - dataCriacao.getTime();
+      if (diffMs >= 0) {
+        const tempoResposta = diffMs / (1000 * 60); // Converter para minutos
+        data.temposResposta.push(tempoResposta);
+      }
     }
+
+    // Tempo de Atendimento = total_horas_atendimento (já vem da API)
+    const tempoAtendimento = horaStringToMinutos(ticket.total_horas_atendimento);
     if (tempoAtendimento > 0) {
       data.temposAtendimento.push(tempoAtendimento);
     }
 
+    // Total de horas trabalhadas pelo operador
+    const horasOperador = horaStringToMinutos(ticket.horas_operador);
     data.totalHoras += horasOperador;
     data.count += 1;
   });
@@ -160,13 +168,13 @@ const calculateOperatorMetrics = (
       const tempoMedioResposta =
         data.temposResposta.length > 0
           ? data.temposResposta.reduce((a, b) => a + b) /
-            data.temposResposta.length
+          data.temposResposta.length
           : 0;
 
       const tempoMedioAtendimento =
         data.temposAtendimento.length > 0
           ? data.temposAtendimento.reduce((a, b) => a + b) /
-            data.temposAtendimento.length
+          data.temposAtendimento.length
           : 0;
 
       return {
