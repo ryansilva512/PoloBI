@@ -24,10 +24,14 @@ interface DateRangePickerProps {
 const presets = [
     {
         label: "Esta semana",
-        getValue: () => ({
-            from: startOfWeek(new Date(), { weekStartsOn: 1 }),
-            to: endOfWeek(new Date(), { weekStartsOn: 1 }),
-        }),
+        getValue: () => {
+            const today = new Date();
+            const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+            return {
+                from: startOfWeek(today, { weekStartsOn: 1 }),
+                to: today < weekEnd ? today : weekEnd, // Limita até hoje
+            };
+        },
     },
     {
         label: "Semana passada",
@@ -45,10 +49,14 @@ const presets = [
     },
     {
         label: "Este mês",
-        getValue: () => ({
-            from: startOfMonth(new Date()),
-            to: endOfMonth(new Date()),
-        }),
+        getValue: () => {
+            const today = new Date();
+            const monthEnd = endOfMonth(today);
+            return {
+                from: startOfMonth(today),
+                to: today < monthEnd ? today : monthEnd, // Limita até hoje
+            };
+        },
     },
     {
         label: "Mês passado",
