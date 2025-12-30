@@ -24,6 +24,7 @@ import RegistrosExpirados from "@/pages/registros-expirados";
 import Metodologia from "@/pages/metodologia";
 import Sobre from "@/pages/sobre";
 import ManutencaoPreventiva from "@/pages/manutencao-preventiva";
+import PesquisaSatisfacao from "@/pages/pesquisa-satisfacao";
 import Login from "@/pages/login";
 
 function ProtectedRouter() {
@@ -33,6 +34,7 @@ function ProtectedRouter() {
       <Route path="/operacional" component={Operacional} />
       <Route path="/registros-expirados" component={RegistrosExpirados} />
       <Route path="/manutencao-preventiva" component={ManutencaoPreventiva} />
+      <Route path="/pesquisa-satisfacao" component={PesquisaSatisfacao} />
       <Route path="/metodologia" component={Metodologia} />
       <Route path="/sobre" component={Sobre} />
       <Route component={NotFound} />

@@ -598,6 +598,82 @@ export async function registerRoutes(
       });
     }
   });
+  // ========== PESQUISA DE SATISFAÇÃO ENDPOINT ==========
+  app.post("/api/proxy/pesquisas", async (req, res) => {
+    try {
+      const API_KEY = process.env.MILVUS_API_KEY;
+      if (!API_KEY) {
+        return res.status(500).json({
+          success: false,
+          message: "MILVUS_API_KEY not configured"
+        });
+      }
+
+      const response = await fetch(
+        "https://apiintegracao.milvus.com.br/api/relatorio-personalizado/exportar",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            nome: "Pesquisas",
+            tipo: "csv"
+          })
+        }
+      );
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          success: false,
+          message: `API Milvus error: ${response.status}`
+        });
+      }
+
+      const csvText = await response.text();
+
+      // Parse CSV
+      const lines = csvText.split('\n').filter(line => line.trim());
+      if (lines.length === 0) {
+        return res.json({ lista: [] });
+      }
+
+      // Parse header
+      const header = lines[0].split(';').map(h => h.replace(/"/g, '').trim());
+
+      // Parse data rows
+      const data = lines.slice(1).map(line => {
+        const values = line.split(';').map(v => v.replace(/"/g, '').trim());
+        const row: Record<string, string> = {};
+        header.forEach((h, i) => {
+          row[h] = values[i] || '';
+        });
+        return {
+          data_criacao: row['DATA DE CRIAÇÃO DO TICKET'] || '',
+          contato: row['CONTATO DO TICKET'] || '',
+          descricao_avaliacao: row['DESCRIÇÃO DA AVALIAÇÃO'] || '',
+          nota: row['NOTA DA AVALIAÇÃO'] || '',
+          data_avaliacao: row['DATA DA AVALIAÇÃO'] || '',
+          ticket: row['TICKET'] || '',
+          razao_social: row['RAZÃO SOCIAL DO CLIENTE'] || '',
+          categoria: row['NOME DA CATEGORIA'] || '',
+          operador: row['NOME DO OPERADOR'] || '',
+          ticket_excluido: row['TICKET EXCLUÍDO'] || 'Não'
+        };
+      });
+
+      res.json({ lista: data });
+    } catch (error: any) {
+      console.error("Erro ao buscar pesquisas:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro ao buscar pesquisas",
+        error: error.message
+      });
+    }
+  });
+  // ========== END PESQUISA DE SATISFAÇÃO ==========
 
   return httpServer;
 }
