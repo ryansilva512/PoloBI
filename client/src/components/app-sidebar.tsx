@@ -43,6 +43,11 @@ const menuPrincipal = [
     icon: AlertTriangle,
   },
   {
+    title: "Pesquisa de Satisfação",
+    url: "/pesquisa-satisfacao",
+    icon: SmilePlus,
+  },
+  {
     title: "Manutenção Preventiva",
     url: "/manutencao-preventiva",
     icon: Wrench,

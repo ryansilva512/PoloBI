@@ -51,6 +51,8 @@ import {
   RefreshCw,
   Download,
   Loader2,
+  SmilePlus,
+  Trophy,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import { newTicketsStore } from "@/stores/newTicketsStore";
@@ -141,8 +143,30 @@ const getAvatarSrc = (nome: string) => {
   const key = normalizeName(nome);
   const byMap = avatarMap[key];
   if (byMap) return byMap;
+
+  // Tenta pelo primeiro nome se o nome completo falhar
+  const primeiroNome = key.split(' ')[0];
+  if (avatarMap[primeiroNome]) return avatarMap[primeiroNome];
+
   // tenta ascii e o nome original como fallback
   return `/avatars/${key}.png`;
+};
+
+
+
+const parseDataPesquisa = (value?: string | null) => {
+  if (!value) return null;
+  try {
+    const parsed = parseISO(value);
+    if (isValid(parsed)) return parsed;
+    const parts = value.split('/');
+    if (parts.length === 3) {
+      const [day, month, year] = parts;
+      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      if (isValid(date)) return date;
+    }
+  } catch { }
+  return null;
 };
 
 export default function Home() {
@@ -346,6 +370,61 @@ export default function Home() {
       return [];
     }
   };
+
+  // Estado para Top 3 de pesquisas avaliadas
+  const [rankingPesquisas, setRankingPesquisas] = useState<Array<{ operador: string; quantidade: number }>>([]);
+
+  // Função para buscar pesquisas de satisfação
+  const fetchPesquisas = async () => {
+    try {
+      const response = await fetch('/api/proxy/pesquisas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      const pesquisas = data?.lista || [];
+
+      // Calcular ranking por quantidade de pesquisas avaliadas (com nota)
+      const map = new Map<string, number>();
+
+      // Preparar datas do filtro
+      const dataInicialDate = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
+      const dataFinalDate = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+
+      pesquisas.forEach((p: any) => {
+        // Ignorar tickets excluídos
+        if (p.ticket_excluido === 'Sim') return;
+
+        // Aplicar filtro de data se existir
+        if (dataInicialDate && dataFinalDate) {
+          const dataPesquisa = parseDataPesquisa(p.data_criacao);
+          if (!dataPesquisa) return; // Data inválida = fora do range
+
+          if (dataPesquisa < startOfDay(dataInicialDate) || dataPesquisa > endOfDay(dataFinalDate)) {
+            return;
+          }
+        }
+
+        if (p.operador && p.nota && !isNaN(parseFloat(p.nota.replace(',', '.')))) {
+          map.set(p.operador, (map.get(p.operador) || 0) + 1);
+        }
+      });
+      const ranking = Array.from(map.entries())
+        .map(([operador, quantidade]) => ({ operador, quantidade }))
+        .sort((a, b) => b.quantidade - a.quantidade)
+        .slice(0, 3);
+      setRankingPesquisas(ranking);
+    } catch (e) {
+      console.error('Erro ao buscar pesquisas:', e);
+    }
+  };
+
+  // Buscar pesquisas ao montar o componente
+  // Buscar pesquisas ao montar o componente ou mudar filtros
+  useEffect(() => {
+    fetchPesquisas();
+  }, [filters.data_inicial, filters.data_final]);
 
   // Buscar chamados ativos (Atendendo + Pausado) ao carregar a página
   useEffect(() => {
@@ -1237,6 +1316,52 @@ export default function Home() {
             )}
           </Button>
         </div>
+
+        {/* Widget Top 3 Pesquisas (Header) */}
+        <div className="flex-1 px-4 hidden xl:block">
+          {rankingPesquisas.length > 0 && (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex items-center gap-10 bg-slate-900/60 py-3 px-8 rounded-xl border border-yellow-500/20 shadow-lg shadow-yellow-500/5 backdrop-blur-md">
+                <div className="text-sm font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-2 px-2 border-r border-slate-700/50">
+                  <Trophy className="h-5 w-5" /> Top Avaliados
+                </div>
+                <div className="flex items-center gap-8 pr-2">
+                  {rankingPesquisas.map((item, idx) => (
+                    <div key={item.operador} className="flex items-center gap-4">
+                      <div className="relative">
+                        <Avatar className={cn("border-2 border-slate-900 ring-2 ring-offset-2 ring-offset-slate-950",
+                          idx === 0 ? "h-14 w-14 ring-yellow-500" :
+                            idx === 1 ? "h-12 w-12 ring-slate-400" :
+                              "h-12 w-12 ring-amber-700"
+                        )}>
+                          <AvatarImage src={getAvatarSrc(item.operador)} alt={item.operador} />
+                          <AvatarFallback className="text-xs bg-yellow-950 text-yellow-500 font-bold">
+                            {item.operador.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className={cn(
+                          "absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold border-2 border-slate-900 shadow-sm",
+                          idx === 0 ? "bg-yellow-400 text-black scale-110" :
+                            idx === 1 ? "bg-slate-300 text-black" : "bg-amber-700 text-white"
+                        )}>
+                          {idx + 1}
+                        </span>
+                      </div>
+                      <div className="flex flex-col leading-none gap-1">
+                        <span className={cn("font-bold text-slate-200", idx === 0 ? "text-base text-yellow-100" : "text-sm")}>
+                          {item.operador.split(' ')[0]}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-medium bg-slate-800/80 px-2 py-0.5 rounded-full w-fit whitespace-nowrap">
+                          {item.quantidade} <span className="inline">avaliações</span>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         <div className="flex gap-3">
           <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
             <CardHeader className="py-2 px-3">
@@ -1627,6 +1752,8 @@ export default function Home() {
             })}
           </CardContent>
         </Card>
+
+
       </div>
 
       {/* Chamados Ativos (Atendendo + Pausado) */}
