@@ -82,6 +82,16 @@ export default function Operacional() {
   const [chamadosEmAtendimento, setChamadosEmAtendimento] = useState<any[]>([]);
   const [loadingAtendimento, setLoadingAtendimento] = useState(false);
 
+  // Ler status da URL ao montar (ex: link vindo da Home)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const statusParam = params.get('status');
+    if (statusParam) {
+      const statuses = statusParam.split(',');
+      setSelectedStatuses(statuses);
+    }
+  }, []);
+
   // Buscar chamados em atendimento
   useEffect(() => {
     const fetchChamadosEmAtendimento = async () => {
