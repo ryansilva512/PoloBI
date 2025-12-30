@@ -1037,8 +1037,17 @@ export default function Home() {
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
 
+    // 1. Atualizar dados do relatório
     const result = await refetch();
     const newTicketCount = result.data?.lista?.length || 0;
+
+    // 2. Atualizar chamados ativos (Atendendo + Pausado)
+    const openTickets = await fetchOpenTickets();
+    const ativos = openTickets.filter((c: any) =>
+      c.status === 'Atendendo' || c.status === 'Pausado'
+    );
+    setChamadosAtivos(ativos);
+    setOpenTicketsCount(ativos.length);
 
     // Verifica se há novos tickets
     if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
@@ -1057,7 +1066,7 @@ export default function Home() {
     } else {
       toast({
         title: "Dados atualizados",
-        description: "Dashboard atualizado manualmente",
+        description: `Dashboard atualizado • ${ativos.length} chamado(s) ativo(s)`,
         duration: 2000,
       });
     }
@@ -1126,7 +1135,7 @@ export default function Home() {
 
   const kpiCards = [
     {
-      titulo: "Tickets Gerais",
+      titulo: "Tickets Finalizados",
       valor: aggregatedData.totalTickets.toLocaleString("pt-BR"),
       detalhe: "",
       icon: <Phone className="h-5 w-5 text-emerald-400" />,
@@ -1651,7 +1660,14 @@ export default function Home() {
               </TableHeader>
               <TableBody>
                 {rankingChamadosAtivos.map((op) => (
-                  <TableRow key={op.nome}>
+                  <TableRow
+                    key={op.nome}
+                    className="cursor-pointer hover:bg-green-500/10 transition-colors"
+                    onClick={() => {
+                      updateFilters({ analista: op.nome });
+                      setLocation('/operacional');
+                    }}
+                  >
                     <TableCell className="font-medium">{op.nome}</TableCell>
                     <TableCell>
                       <Avatar className="h-10 w-10 border border-border/80">
