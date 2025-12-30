@@ -294,8 +294,18 @@ export default function Operacional() {
   }, [chamadosEmAtendimento]);
 
   // Combinar chamados do relatório (finalizados) com chamados abertos (Atendendo/Pausado)
+  // Aplicando também o filtro de analista aos chamados ativos
   const todosChamados = useMemo(() => {
-    const merged: TicketRaw[] = [...ticketsFiltrados, ...chamadosAbertoFormatados];
+    const filtroAnalista = normalizeName(filters.analista);
+
+    // Filtrar chamados ativos pelo analista se houver filtro
+    const chamadosAtivosFiltrados = filtroAnalista
+      ? chamadosAbertoFormatados.filter(ticket =>
+        normalizeName(ticket.nome) === filtroAnalista
+      )
+      : chamadosAbertoFormatados;
+
+    const merged: TicketRaw[] = [...ticketsFiltrados, ...chamadosAtivosFiltrados];
     // Remover duplicatas pelo codigo
     const uniqueMap = new Map<number, TicketRaw>();
     merged.forEach(ticket => {
@@ -304,7 +314,7 @@ export default function Operacional() {
       }
     });
     return Array.from(uniqueMap.values());
-  }, [ticketsFiltrados, chamadosAbertoFormatados]);
+  }, [ticketsFiltrados, chamadosAbertoFormatados, filters.analista]);
 
   const filteredTickets = useMemo(() => {
     // Se nenhum status selecionado, mostrar todos
@@ -537,7 +547,8 @@ export default function Operacional() {
     );
   }
 
-  if (!aggregatedData || !slaData) {
+  // Só mostra "nenhum dado" se não houver dados do relatório E também não houver chamados ativos
+  if ((!aggregatedData || !slaData) && todosChamados.length === 0) {
     return (
       <PageHeader titulo="Operacional" subtitulo="Nenhum dado disponivel para o periodo selecionado" />
     );

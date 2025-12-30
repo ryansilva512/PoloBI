@@ -7,6 +7,65 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // ========== AUTHENTICATION ENDPOINT ==========
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+
+      // Credenciais do admin DEVEM estar no .env (sem fallback hardcoded por segurança)
+      const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+      const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+      // Verificar se as credenciais estão configuradas
+      if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+        return res.status(500).json({
+          success: false,
+          message: "Credenciais de admin não configuradas no servidor"
+        });
+      }
+
+      if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+        // Login bem-sucedido
+        res.json({
+          success: true,
+          user: {
+            email: ADMIN_EMAIL,
+            name: "Administrador",
+            role: "admin"
+          },
+          token: Buffer.from(`${ADMIN_EMAIL}:${Date.now()}`).toString('base64')
+        });
+      } else {
+        // Credenciais inválidas
+        res.status(401).json({
+          success: false,
+          message: "Email ou senha inválidos"
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor",
+        error: error.message
+      });
+    }
+  });
+
+  // Endpoint para verificar sessão
+  app.get("/api/auth/verify", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      res.json({ valid: true });
+    } else {
+      res.status(401).json({ valid: false });
+    }
+  });
+
+  // Endpoint de logout (apenas para logging)
+  app.post("/api/auth/logout", async (req, res) => {
+    res.json({ success: true, message: "Logout realizado com sucesso" });
+  });
+  // ========== END AUTHENTICATION ==========
   // Test connectivity
   app.get("/api/test-connectivity", async (req, res) => {
     try {
