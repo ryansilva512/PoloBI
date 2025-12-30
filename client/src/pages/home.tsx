@@ -468,9 +468,9 @@ export default function Home() {
     }
   };
 
-  // Função para falar novo chamado (aguarda vozes carregarem)
-  const speakNewTicket = (text: string) => {
-    console.log('🔊 speakNewTicket chamado com:', text);
+  // Função para falar anúncios (aguarda vozes carregarem)
+  const speakAnnouncement = (text: string) => {
+    console.log('🔊 speakAnnouncement chamado com:', text);
 
     if (!('speechSynthesis' in window)) {
       console.error('❌ SpeechSynthesis não suportado neste navegador');
@@ -653,13 +653,13 @@ export default function Home() {
 
         // Notificação por voz corrigida
         setTimeout(() => {
-          console.log('🔊 Chamando speakNewTicket...');
+          console.log('🔊 Chamando speakAnnouncement...');
           if (novosChamados.length === 1) {
             const primeiro = novosChamados[0];
             const cliente = primeiro.nome_fantasia || 'cliente desconhecido';
-            speakNewTicket(`Atenção! Novo chamado do cliente ${cliente}: ${primeiro.assunto}`);
+            speakAnnouncement(`Atenção! Novo chamado do cliente ${cliente}: ${primeiro.assunto}`);
           } else {
-            speakNewTicket(`Atenção! Foram abertos ${novosChamados.length} novos chamados!`);
+            speakAnnouncement(`Atenção! Foram abertos ${novosChamados.length} novos chamados!`);
           }
         }, 300);
       }
@@ -715,22 +715,6 @@ export default function Home() {
           }
         };
 
-        // Função para falar
-        const speakFinalization = (text: string) => {
-          if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'pt-BR';
-            utterance.rate = 0.95;
-            utterance.pitch = 1.0;
-            utterance.volume = 1.0;
-            const voices = window.speechSynthesis.getVoices();
-            const ptVoice = voices.find(voice => voice.lang.includes('pt'));
-            if (ptVoice) utterance.voice = ptVoice;
-            window.speechSynthesis.speak(utterance);
-          }
-        };
-
         // Só tocar som de finalização se não tiver novos chamados (para não sobrepor)
         if (novosChamados.length === 0) {
           playSuccessSound();
@@ -763,7 +747,7 @@ export default function Home() {
           const primeiro = finalizados[0];
           const operador = primeiro.nome || 'Operador';
           const cliente = primeiro.nome_fantasia || 'cliente';
-          speakFinalization(`Atenção! ${operador} finalizou o chamado do cliente ${cliente}`);
+          speakAnnouncement(`Atenção! ${operador} finalizou o chamado do cliente ${cliente}`);
         }, novosChamados.length > 0 ? 5000 : 500);
       } else if (novosChamados.length === 0) {
         // Se não houve finalizações nem novos, mostrar atualização silenciosa
@@ -1442,7 +1426,7 @@ export default function Home() {
                   size="sm"
                   onClick={() => {
                     playNewTicketSound();
-                    speakNewTicket("Teste de áudio. Atenção! Foi aberto um chamado de teste!");
+                    speakAnnouncement("Teste de áudio. Atenção! Foi aberto um chamado de teste!");
                     toast({
                       title: "🔊 Teste de Áudio",
                       description: "Se você ouviu o som e a voz, está funcionando!",
