@@ -92,6 +92,7 @@ export default function RegistrosExpirados() {
     const [analistaFiltro, setAnalistaFiltro] = useState<string | undefined>(undefined);
     const [activeTab, setActiveTab] = useState<"resposta" | "atendimento">("resposta");
     const [isExporting, setIsExporting] = useState(false);
+    const [pageSize, setPageSize] = useState(10);
     const { toast } = useToast();
 
     // Ler parâmetro tab da URL para definir a aba inicial
@@ -515,6 +516,26 @@ export default function RegistrosExpirados() {
                             Limpar filtros
                         </Button>
                     </div>
+                    {/* Seletor de quantidade por página */}
+                    <div className="flex items-end ml-auto">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Exibir:</span>
+                            <Select
+                                value={String(pageSize)}
+                                onValueChange={(v) => setPageSize(Number(v))}
+                            >
+                                <SelectTrigger className="w-20">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="10">10</SelectItem>
+                                    <SelectItem value="25">25</SelectItem>
+                                    <SelectItem value="50">50</SelectItem>
+                                    <SelectItem value="100">100</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 
@@ -556,14 +577,15 @@ export default function RegistrosExpirados() {
                                         <TableHead>Operador</TableHead>
                                         <TableHead>Cliente</TableHead>
                                         <TableHead>Tipo</TableHead>
-                                        <TableHead className="w-[200px]">Excedeu a Meta</TableHead>
+                                        <TableHead>Data</TableHead>
+                                        <TableHead className="w-[120px]">Excedeu</TableHead>
                                         <TableHead className="text-right">Tempo</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {respostasExpiradas.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={6} className="py-16">
+                                            <TableCell colSpan={7} className="py-16">
                                                 <div className="flex flex-col items-center justify-center gap-3 text-center">
                                                     <div className="p-4 rounded-full bg-green-500/10 ring-2 ring-green-500/20">
                                                         <PartyPopper className="h-8 w-8 text-green-500" />
@@ -576,7 +598,7 @@ export default function RegistrosExpirados() {
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        respostasExpiradas.slice(0, 50).map((ticket, idx) => {
+                                        respostasExpiradas.slice(0, pageSize).map((ticket, idx) => {
                                             const porcentagem = calcularPorcentagemExcedida(ticket.tempoResposta, META_RESPOSTA_MINUTOS);
                                             const cores = getExceededColor(porcentagem);
                                             const barWidth = Math.min(porcentagem, 500) / 5; // max 100%
@@ -606,18 +628,15 @@ export default function RegistrosExpirados() {
                                                     <TableCell>
                                                         <Badge variant="outline" className="text-xs">{ticket.tipo_chamado?.text || "-"}</Badge>
                                                     </TableCell>
+                                                    <TableCell className="text-xs text-muted-foreground">
+                                                        {ticket.data_criacao ? format(parseDateSafely(ticket.data_criacao) || new Date(), "dd/MM/yyyy HH:mm") : "-"}
+                                                    </TableCell>
                                                     <TableCell>
-                                                        <div className="space-y-1">
-                                                            <div className="flex items-center justify-between text-xs">
-                                                                <span className={cn("font-semibold", cores.text)}>{porcentagem}%</span>
-                                                                {porcentagem > 200 && <Flame className="h-3 w-3 text-red-500" />}
-                                                            </div>
-                                                            <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                                                <div
-                                                                    className={cn("h-full rounded-full transition-all duration-500", cores.bar)}
-                                                                    style={{ width: `${barWidth}%` }}
-                                                                />
-                                                            </div>
+                                                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                                            <div
+                                                                className={cn("h-full rounded-full transition-all duration-500", cores.bar)}
+                                                                style={{ width: `${barWidth}%` }}
+                                                            />
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className={cn("text-right font-mono font-bold", cores.text)}>
@@ -656,14 +675,15 @@ export default function RegistrosExpirados() {
                                         <TableHead>Operador</TableHead>
                                         <TableHead>Tipo</TableHead>
                                         <TableHead>Cliente</TableHead>
-                                        <TableHead className="w-[200px]">Excedeu a Meta</TableHead>
+                                        <TableHead>Data</TableHead>
+                                        <TableHead className="w-[120px]">Excedeu</TableHead>
                                         <TableHead className="text-right">Tempo</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {atendimentosExpirados.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={6} className="py-16">
+                                            <TableCell colSpan={7} className="py-16">
                                                 <div className="flex flex-col items-center justify-center gap-3 text-center">
                                                     <div className="p-4 rounded-full bg-green-500/10 ring-2 ring-green-500/20">
                                                         <PartyPopper className="h-8 w-8 text-green-500" />
@@ -676,7 +696,7 @@ export default function RegistrosExpirados() {
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        atendimentosExpirados.slice(0, 50).map((ticket, idx) => {
+                                        atendimentosExpirados.slice(0, pageSize).map((ticket, idx) => {
                                             const metaMinutos = META_ATENDIMENTO_HORAS * 60;
                                             const porcentagem = calcularPorcentagemExcedida(ticket.tempoAtendimento, metaMinutos);
                                             const cores = getExceededColor(porcentagem);
@@ -707,18 +727,15 @@ export default function RegistrosExpirados() {
                                                         <Badge variant="outline" className="text-xs">{ticket.tipo_chamado?.text || "-"}</Badge>
                                                     </TableCell>
                                                     <TableCell className="max-w-[150px] truncate">{ticket.nome_fantasia}</TableCell>
+                                                    <TableCell className="text-xs text-muted-foreground">
+                                                        {ticket.data_criacao ? format(parseDateSafely(ticket.data_criacao) || new Date(), "dd/MM/yyyy HH:mm") : "-"}
+                                                    </TableCell>
                                                     <TableCell>
-                                                        <div className="space-y-1">
-                                                            <div className="flex items-center justify-between text-xs">
-                                                                <span className={cn("font-semibold", cores.text)}>{porcentagem}%</span>
-                                                                {porcentagem > 200 && <Flame className="h-3 w-3 text-red-500" />}
-                                                            </div>
-                                                            <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                                                <div
-                                                                    className={cn("h-full rounded-full transition-all duration-500", cores.bar)}
-                                                                    style={{ width: `${barWidth}%` }}
-                                                                />
-                                                            </div>
+                                                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                                            <div
+                                                                className={cn("h-full rounded-full transition-all duration-500", cores.bar)}
+                                                                style={{ width: `${barWidth}%` }}
+                                                            />
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className={cn("text-right font-mono font-bold", cores.text)}>
