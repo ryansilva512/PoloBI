@@ -345,7 +345,10 @@ export default function Home() {
 
   // Set para rastrear IDs de chamados abertos anteriores
   const previousOpenTicketIdsRef = useRef<Set<number>>(new Set());
+  // Set para rastrear IDs de chamados finalizados já notificados
+  const notifiedFinishedTicketIdsRef = useRef<Set<number>>(new Set());
   const openTicketsInitializedRef = useRef<boolean>(false);
+  const finishedTicketsInitializedRef = useRef<boolean>(false);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
@@ -367,6 +370,23 @@ export default function Home() {
       return data?.lista || [];
     } catch (e) {
       console.error('Erro ao buscar chamados abertos:', e);
+      return [];
+    }
+  };
+
+  // Função para buscar últimos finalizados (para detecção de alertas)
+  const fetchLastFinishedTickets = async () => {
+    try {
+      const response = await fetch('/api/proxy/chamado/listagem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Finalizado', total_registros: 10 }), // Pega os 10 últimos
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data?.lista || [];
+    } catch (e) {
+      console.error('Erro ao buscar chamados finalizados:', e);
       return [];
     }
   };
@@ -664,1167 +684,1182 @@ export default function Home() {
         }, 300);
       }
 
-      // 5. Detectar tickets FINALIZADOS (existente)
-      const finalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
-      const newStatusMap = new Map<number, string>();
+    }
 
-      newTickets.forEach((ticket) => {
-        const codigo = ticket.codigo;
-        const statusText = ticket.status?.text || '';
-        newStatusMap.set(codigo, statusText);
+      // 5. Detectar tickets FINALIZADOS - Lógica corrigida com busca ativa
+      const lastFinished = await fetchLastFinishedTickets();
+    const newFinalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
 
-        // Verificar se o ticket estava com outro status antes e agora está "Finalizado"
-        const previousStatus = previousTicketStatusesRef.current.get(codigo);
-        if (previousStatus && previousStatus !== 'Finalizado' && statusText === 'Finalizado') {
-          finalizados.push({
+    if (finishedTicketsInitializedRef.current) {
+      lastFinished.forEach((t: any) => {
+        const codigo = t.codigo || t.id;
+        // Se este finalizado ainda não foi notificado
+        if (!notifiedFinishedTicketIdsRef.current.has(codigo)) {
+          console.log('✅ NOVO FINALIZADO DETECTADO:', codigo, t.assunto);
+          newFinalizados.push({
             codigo,
-            assunto: ticket.assunto,
-            nome: ticket.nome,
-            nome_fantasia: ticket.nome_fantasia
+            assunto: t.assunto,
+            nome: t.nome || t.operador || 'Operador',
+            nome_fantasia: t.nome_fantasia || t.cliente || 'Cliente'
           });
+          // Marca como notificado para não repetir
+          notifiedFinishedTicketIdsRef.current.add(codigo);
         }
       });
-
-      // Atualizar o mapa de status
-      previousTicketStatusesRef.current = newStatusMap;
-
-      // Notificar sobre tickets finalizados
-      if (finalizados.length > 0) {
-        // Função para tocar som de sucesso
-        const playSuccessSound = () => {
-          try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const playTone = (startTime: number, frequency: number, duration: number) => {
-              const oscillator = audioContext.createOscillator();
-              const gainNode = audioContext.createGain();
-              oscillator.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-              oscillator.frequency.value = frequency;
-              oscillator.type = 'sine';
-              gainNode.gain.setValueAtTime(0.2, startTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-              oscillator.start(startTime);
-              oscillator.stop(startTime + duration);
-            };
-            const now = audioContext.currentTime;
-            playTone(now, 523, 0.2);      // C5
-            playTone(now + 0.15, 659, 0.2); // E5
-            playTone(now + 0.3, 784, 0.4);  // G5
-          } catch (e) {
-            console.log('Audio não suportado');
-          }
-        };
-
-        // Só tocar som de finalização se não tiver novos chamados (para não sobrepor)
-        if (novosChamados.length === 0) {
-          playSuccessSound();
-        }
-
-        // Mostrar toast para cada ticket finalizado (máximo 3 para não poluir)
-        finalizados.slice(0, 3).forEach((ticket, index) => {
-          setTimeout(() => {
-            toast({
-              title: '✅ Chamado Finalizado!',
-              description: `"${ticket.assunto}" (Código: ${ticket.codigo})`,
-              duration: 6000,
-            });
-          }, (novosChamados.length > 0 ? 4000 : 0) + index * 1000);
-        });
-
-        // Se houver mais de 3, mostrar um resumo
-        if (finalizados.length > 3) {
-          setTimeout(() => {
-            toast({
-              title: `📋 +${finalizados.length - 3} outros finalizados`,
-              description: 'Múltiplos chamados foram concluídos',
-              duration: 4000,
-            });
-          }, (novosChamados.length > 0 ? 4000 : 0) + 3500);
-        }
-
-        // Falar o primeiro finalizado (com delay se tiver novos chamados)
-        setTimeout(() => {
-          const primeiro = finalizados[0];
-          const operador = primeiro.nome || 'Operador';
-          const cliente = primeiro.nome_fantasia || 'cliente';
-          speakAnnouncement(`Atenção! ${operador} finalizou o chamado do cliente ${cliente}`);
-        }, novosChamados.length > 0 ? 5000 : 500);
-      } else if (novosChamados.length === 0) {
-        // Se não houve finalizações nem novos, mostrar atualização silenciosa
-        toast({
-          title: "Dados atualizados",
-          description: `Dashboard atualizado • ${openTickets.length} chamado(s) aberto(s)`,
-          duration: 2000,
-        });
-      }
-
-      setPreviousTicketCount(newTicketCount);
-      setTimeout(() => setIsRefreshing(false), 500);
-      setNextRefreshIn(refreshInterval);
-    }, refreshInterval);
-
-    return () => clearInterval(intervalId);
-  }, [refreshInterval, refetch, toast, previousTicketCount]);
-
-  // Countdown timer
-  useEffect(() => {
-    if (!nextRefreshIn || nextRefreshIn <= 0) return;
-
-    const countdownId = setInterval(() => {
-      setNextRefreshIn((prev) => {
-        if (!prev || prev <= 1000) return null;
-        return prev - 1000;
+    } else {
+      // Primeira execução: apenas popular o set com os finalizados atuais para não notificar histórico
+      console.log('📋 Inicializando lista de finalizados conhecidos...');
+      lastFinished.forEach((t: any) => {
+        const codigo = t.codigo || t.id;
+        notifiedFinishedTicketIdsRef.current.add(codigo);
       });
-    }, 1000);
-
-    return () => clearInterval(countdownId);
-  }, [nextRefreshIn]);
-
-  const tickets = ticketsResponse?.lista ?? [];
-
-  // Atualiza contagem inicial de tickets e inicializa mapa de status
-  useEffect(() => {
-    if (tickets.length > 0 && previousTicketCount === null) {
-      setPreviousTicketCount(tickets.length);
-
-      // Inicializar o mapa de status com os tickets atuais
-      const statusMap = new Map<number, string>();
-      tickets.forEach((ticket) => {
-        statusMap.set(ticket.codigo, ticket.status?.text || '');
-      });
-      previousTicketStatusesRef.current = statusMap;
+      finishedTicketsInitializedRef.current = true;
     }
-  }, [tickets, previousTicketCount]);
 
-  const dataInicialDate = useMemo(
-    () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
-    [filters.data_inicial]
-  );
-  const dataFinalDate = useMemo(
-    () => (filters.data_final ? parseDateSafely(filters.data_final) : null),
-    [filters.data_final]
-  );
+    // Limpeza opcional: manter o Set de finalizados num tamanho razoável (ex: últimos 100)
+    if (notifiedFinishedTicketIdsRef.current.size > 100) {
+      // Reset simples ou lógica mais complexa se necessário. 
+      // Como é apenas ID number, o consumo de memória é irrisório.
+    }
 
-  const ticketsFiltrados = useMemo(() => {
-    if (!tickets.length) return [];
-
-    const dedupKey = (ticket: typeof tickets[0]) =>
-      ticket.codigo ?? ticket.id ?? `${ticket.id}-${ticket.codigo}`;
-
-    const dentroDoPeriodo = tickets.filter((ticket) => {
-      const dataRef = ticket.data_criacao || ticket.data_inicial || ticket.data_final;
-      const dataTicket = parseDateSafely(dataRef);
-      if (dataInicialDate && dataTicket && dataTicket < dataInicialDate) return false;
-      if (dataFinalDate && dataTicket && dataTicket > dataFinalDate) return false;
-      return true;
-    });
-
-    // Deduplicacao apos o filtro de data para manter apenas chamados do intervalo selecionado.
-    // Quando existem multiplos registros do mesmo codigo, mantemos o mais recente.
-    const map = new Map<number | string, typeof tickets[0]>();
-    dentroDoPeriodo.forEach((t) => {
-      const key = dedupKey(t);
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, t);
-        return;
-      }
-
-      const refDate = (ticket: typeof tickets[0]) =>
-        parseDateSafely(ticket.data_final) ||
-        parseDateSafely(ticket.data_inicial) ||
-        parseDateSafely(ticket.data_criacao);
-
-      const newDate = refDate(t)?.getTime() || -Infinity;
-      const oldDate = refDate(existing)?.getTime() || -Infinity;
-
-      if (newDate >= oldDate) {
-        map.set(key, t);
-      }
-    });
-
-    return Array.from(map.values());
-  }, [tickets, dataInicialDate, dataFinalDate]);
-
-  // Helpers para diffs baseados em datas
-  const diffsRespostaMin = useMemo(() => {
-    return ticketsFiltrados
-      .map((ticket) => {
-        const criacao = parseDateSafely(ticket.data_criacao);
-        const inicio = parseDateSafely(ticket.data_inicial);
-        if (!criacao || !inicio) return null;
-        const diffMs = inicio.getTime() - criacao.getTime();
-        if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-        return diffMs / (1000 * 60);
-      })
-      .filter((v): v is number => v !== null);
-  }, [ticketsFiltrados]);
-
-  const diffsAtendimentoMin = useMemo(() => {
-    return ticketsFiltrados
-      .map((ticket) => {
-        const inicio = parseDateSafely(ticket.data_inicial);
-        const fim =
-          parseDateSafely(ticket.data_final) ||
-          parseDateSafely((ticket as any).data_solucao) ||
-          parseDateSafely(ticket.data_final);
-        if (!inicio || !fim) return null;
-        const diffMs = fim.getTime() - inicio.getTime();
-        if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-        return diffMs / (1000 * 60);
-      })
-      .filter((v): v is number => v !== null);
-  }, [ticketsFiltrados]);
-
-  const calcularMediaCap = (valores: number[], capMinutos: number) => {
-    const filtrados = valores.filter((v) => v <= capMinutos);
-    if (!filtrados.length) return { media: 0, considerados: 0, total: valores.length };
-    const soma = filtrados.reduce((a, b) => a + b, 0);
-    return { media: soma / filtrados.length, considerados: filtrados.length, total: valores.length };
-  };
-
-  const aggregatedData = useMemo(() => {
-    if (!ticketsFiltrados.length) return null;
-    return aggregateTicketData(ticketsFiltrados);
-  }, [ticketsFiltrados]);
-
-  const slaData = useMemo(() => {
-    if (!ticketsFiltrados.length) return null;
-    return calculateSLADistribution(ticketsFiltrados);
-  }, [ticketsFiltrados]);
-
-  // Tempo médio de abertura/resposta (data_inicial - data_criacao) com cap de 3h
-  const tempoMedioAbertura = useMemo(() => {
-    if (!diffsRespostaMin.length) return { minutos: 0, total: 0, considerados: 0 };
-    const { media, considerados, total } = calcularMediaCap(diffsRespostaMin, 180); // cap 3h
-    return { minutos: media, total, considerados };
-  }, [diffsRespostaMin]);
-
-  const tempoRespostaPorOperador = useMemo(() => {
-    if (!ticketsFiltrados.length) return [];
-
-    const capMinutos = 180; // cap em 3h para evitar distorÇõÇœes
-
-    const map = new Map<
-      string,
-      {
-        totalMinutos: number;
-        count: number;
-      }
-    >();
-
-    ticketsFiltrados.forEach((ticket) => {
-      const criacao = parseDateSafely(ticket.data_criacao);
-      const inicio = parseDateSafely(ticket.data_inicial);
-
-      if (!criacao || !inicio) return;
-
-      const diffMs = inicio.getTime() - criacao.getTime();
-      if (!Number.isFinite(diffMs) || diffMs < 0) return;
-
-      const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
-      const nome = ticket.nome;
-
-      if (!map.has(nome)) {
-        map.set(nome, { totalMinutos: 0, count: 0 });
-      }
-
-      const data = map.get(nome)!;
-      data.totalMinutos += minutos;
-      data.count += 1;
-    });
-
-    return Array.from(map.entries())
-      .map(([nome, data]) => ({
-        nome,
-        tempoMedioMinutos: data.count ? data.totalMinutos / data.count : 0,
-      }))
-      .sort((a, b) => b.tempoMedioMinutos - a.tempoMedioMinutos);
-  }, [ticketsFiltrados]);
-
-  const periodoDias = useMemo(
-    () => parseDateRangeDias(filters.data_inicial, filters.data_final),
-    [filters.data_inicial, filters.data_final]
-  );
-
-  const tempoMetrics = useMemo(() => {
-    if (!ticketsFiltrados.length) {
-      return {
-        tempoMedioResposta: 0,
-        tempoMedioAtendimento: 0,
-        respostaEmDia: 0,
-        respostaEstourada: 0,
-        atendimentoEmDia: 0,
-        atendimentoExpirado: 0,
-        totalRespMedida: 0,
-        totalAtendMedida: 0,
+    // Notificar sobre tickets finalizados
+    if (newFinalizados.length > 0) {
+      // Função para tocar som de sucesso
+      const playSuccessSound = () => {
+        try {
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const playTone = (startTime: number, frequency: number, duration: number) => {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            oscillator.frequency.value = frequency;
+            oscillator.type = 'sine';
+            gainNode.gain.setValueAtTime(0.2, startTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            oscillator.start(startTime);
+            oscillator.stop(startTime + duration);
+          };
+          const now = audioContext.currentTime;
+          playTone(now, 523, 0.2);      // C5
+          playTone(now + 0.15, 659, 0.2); // E5
+          playTone(now + 0.3, 784, 0.4);  // G5
+        } catch (e) {
+          console.log('Audio não suportado');
+        }
       };
-    }
 
-    // Resposta (data_inicial - data_criacao)
-    const respValid = diffsRespostaMin;
-    const respEmDia = respValid.filter((m) => m <= META_RESPOSTA_MINUTOS).length;
-    const respEstourada = respValid.filter((m) => m > META_RESPOSTA_MINUTOS).length;
-    const respMedia = calcularMediaCap(respValid, 180).media; // cap 3h
-
-    // Atendimento (data_final - data_inicial)
-    const atendValid = diffsAtendimentoMin;
-    const atendEmDia = atendValid.filter((m) => m <= META_ATENDIMENTO_HORAS * 60).length;
-    const atendExpirado = atendValid.filter((m) => m > META_ATENDIMENTO_HORAS * 60).length;
-    const atendMedia = calcularMediaCap(atendValid, 480).media; // cap 8h
-
-    return {
-      tempoMedioResposta: respMedia,
-      tempoMedioAtendimento: atendMedia,
-      respostaEmDia: respEmDia,
-      respostaEstourada: respEstourada,
-      atendimentoEmDia: atendEmDia,
-      atendimentoExpirado: atendExpirado,
-      totalRespMedida: respValid.length,
-      totalAtendMedida: atendValid.length,
-    };
-  }, [ticketsFiltrados, diffsRespostaMin, diffsAtendimentoMin]);
-
-  const conformidadePercentual =
-    slaData && tickets.length
-      ? (slaData.emDia / (slaData.emDia + slaData.emRisco + slaData.estourado)) * 100
-      : 0;
-
-  const mediaEstimadaNotas = Number(((conformidadePercentual / 100) * 5).toFixed(1));
-
-  const operadoresPorAtendimento = useMemo(() => {
-    if (!ticketsFiltrados.length) return [];
-    const capMinutos = 480; // cap 8h
-    const map = new Map<
-      string,
-      {
-        totalMinutos: number;
-        count: number;
+      // Só tocar som de finalização se não tiver novos chamados (para não sobrepor)
+      if (novosChamados.length === 0) {
+        playSuccessSound();
       }
-    >();
 
-    ticketsFiltrados.forEach((ticket) => {
-      const inicio = parseDateSafely(ticket.data_inicial);
-      const fim =
-        parseDateSafely(ticket.data_final) ||
-        parseDateSafely((ticket as any).data_solucao);
-      if (!inicio || !fim) return;
-      const diffMs = fim.getTime() - inicio.getTime();
-      if (!Number.isFinite(diffMs) || diffMs < 0) return;
-      const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
-      const nome = ticket.nome;
-
-      if (!map.has(nome)) {
-        map.set(nome, { totalMinutos: 0, count: 0 });
-      }
-      const data = map.get(nome)!;
-      data.totalMinutos += minutos;
-      data.count += 1;
-    });
-
-    return Array.from(map.entries())
-      .map(([nome, data]) => ({
-        nome,
-        tempoMedioAtendimentoMinutos: data.count ? data.totalMinutos / data.count : 0,
-      }))
-      .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
-  }, [ticketsFiltrados]);
-
-  const rankingOperadores = useMemo(() => {
-    if (!ticketsFiltrados.length) return [];
-    const map = new Map<string, number>();
-    ticketsFiltrados.forEach((ticket) => {
-      const nome = ticket.nome || "Sem nome";
-      map.set(nome, (map.get(nome) || 0) + 1);
-    });
-    const periodoDias = parseDateRangeDias(filters.data_inicial, filters.data_final);
-    return Array.from(map.entries())
-      .map(([nome, total]) => ({
-        nome,
-        total,
-        mediaDiaria: periodoDias > 0 ? total / periodoDias : 0,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [ticketsFiltrados, filters.data_inicial, filters.data_final]);
-
-  // Ranking de operadores baseado APENAS em chamados ativos (Atendendo + Pausado)
-  const rankingChamadosAtivos = useMemo(() => {
-    if (!chamadosAtivos.length) return [];
-    const map = new Map<string, { atendendo: number; pausado: number; total: number }>();
-
-    chamadosAtivos.forEach((ticket: any) => {
-      const nome = ticket.tecnico || "Não atribuído";
-      if (!map.has(nome)) {
-        map.set(nome, { atendendo: 0, pausado: 0, total: 0 });
-      }
-      const data = map.get(nome)!;
-      data.total += 1;
-      if (ticket.status === 'Atendendo') {
-        data.atendendo += 1;
-      } else if (ticket.status === 'Pausado') {
-        data.pausado += 1;
-      }
-    });
-
-    return Array.from(map.entries())
-      .map(([nome, data]) => ({
-        nome,
-        atendendo: data.atendendo,
-        pausado: data.pausado,
-        total: data.total,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [chamadosAtivos]);
-
-  const handleDateChange = (type: "start" | "end", value: string) => {
-    if (!value) {
-      updateFilters({
-        [type === "start" ? "data_inicial" : "data_final"]: undefined,
+      // Mostrar toast para cada ticket finalizado
+      newFinalizados.slice(0, 3).forEach((ticket, index) => {
+        setTimeout(() => {
+          toast({
+            title: '✅ Chamado Finalizado!',
+            description: `"${ticket.assunto}" (Código: ${ticket.codigo}) por ${ticket.nome}`,
+            duration: 6000,
+          });
+        }, (novosChamados.length > 0 ? 4000 : 0) + index * 1000);
       });
-      return;
-    }
 
-    const parsed = parseISO(value);
-    if (!isValid(parsed)) return;
+      // Se houver mais de 3, mostrar um resumo
+      if (newFinalizados.length > 3) {
+        setTimeout(() => {
+          toast({
+            title: `📋 +${newFinalizados.length - 3} outros finalizados`,
+            description: 'Múltiplos chamados foram concluídos',
+            duration: 4000,
+          });
+        }, (novosChamados.length > 0 ? 4000 : 0) + 3500);
+      }
 
-    if (type === "start") {
-      updateFilters({ data_inicial: format(startOfDay(parsed), "yyyy-MM-dd HH:mm:ss") });
-    } else {
-      updateFilters({ data_final: format(endOfDay(parsed), "yyyy-MM-dd HH:mm:ss") });
-    }
-  };
-
-  const handleRefreshChange = (value: string) => {
-    if (value === "off") {
-      setRefreshInterval(null);
-      localStorage.removeItem('dashboard-refresh-interval');
-    } else {
-      const numValue = parseInt(value, 10);
-      setRefreshInterval(numValue);
-      localStorage.setItem('dashboard-refresh-interval', value);
-    }
-  };
-
-  const handleManualRefresh = async () => {
-    setIsRefreshing(true);
-
-    // 1. Atualizar dados do relatório
-    const result = await refetch();
-    const newTicketCount = result.data?.lista?.length || 0;
-
-    // 2. Atualizar chamados ativos (Atendendo + Pausado)
-    const openTickets = await fetchOpenTickets();
-    const ativos = openTickets.filter((c: any) =>
-      c.status === 'Atendendo' || c.status === 'Pausado'
-    );
-    setChamadosAtivos(ativos);
-    setOpenTicketsCount(ativos.length);
-
-    // Verifica se há novos tickets
-    if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
-      const newTickets = newTicketCount - previousTicketCount;
-
-      // Toca som de notificação
-      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWi77eefTRAMUKfj8LZjHAY4ktfyzHksBSR3yPDdkEAKE1+06+unVRULRp/h8r5uIAUsgs/y2Ik2CBlouO3nn00RDFCn4/C2YxwGOJPY8sx5KwUkeMjw3Y9AChRfsunrp1QUC0af4PK+bSAFLITP8NqJNgcZartuu+3nklERDFCm5PCzYhwGOJTa88tzKgUjd8Xwzo5ACxReu+rqo1QVC0Wf3/K9bSAFLYTO8tqJNwcZarsuu+znklEQS0/j8LRkHAU4lNrzzHgrBSN2xO/NjkALFFuz/ejmUxQLRp/g8axrHwUthM7y2ogzBhlosuzm3JBMEQ1Qq+PztGMcBjeV2vTMeSoFI3TC8M6OQAsVX7Po6KZYFA1Gn+Dyt2wdBCx/z/HYhzcFGWe58d+hTBANUavj87JiFQc3ltr0y3kqBSJzwu/NjT8MFFmx5+igWBQLRZ/f8rltIAQrgc7x2IgzBhposezm3I9LERFT/+TztWQcBTiT2fTMdioGI3K/8M+OQAsWXrPn6KFYFQxFn9/yvG0gBSp7zvHZiDQLGGe58N2hTBENUKvi8rJjHAU3k9n0zHcqBiJywvDPjUAMF1607+ihWBYMRZ/f8rltIAUrfM/x2IcyCxhnufDdoUwQC1Gr4vCyZBwFN5PZ9Mt2KgUicrzwz40/DBhftevov1gWDEWe3vK5ayAGK3vO8diHMgsYZ7nw3aFMEAtQq+Lwsl8cBjeR2fTLdSoFInLB8c+NPwwZX7Xs6L9YFgxFnt3yuWsgBSp7zvHYhzILGGa58N2gSA8KUKrh8LJfHAU3kdf0y3UqBSJywPTPjT8NHF+z7umvVxkMQ53c8rheIAYqe83z2YgyDB1lqevfnkUTCU+q4u+yXhsENo/W88x0KQQicsBxT4w/Dyh2yO3mnlQZDkKd2vO5XB4FKnrL8tmHMQsZY6rp3p1EFApOqOLtsVwcBDaOz/PMdCkEI3K9cU+LPw8occft5p5UGQ5Ands0uVweBSp5yvLZhzELGWOn6d6dRBQJTqbh7bFcHAQ2js/zzHMpBCNxvvFOiz8PKHHI7eaeUxgOQ5zb9LhcHgQqeMry');
-      audio.volume = 0.5;
-      audio.play().catch(() => { });
-
-      toast({
-        title: `🔔 ${newTickets} novo(s) chamado(s)!`,
-        description: "Novos tickets detectados",
-        duration: 4000,
-      });
-    } else {
+      // Falar o primeiro finalizado (com delay se tiver novos chamados)
+      setTimeout(() => {
+        const primeiro = newFinalizados[0];
+        const operador = primeiro.nome || 'Operador';
+        const cliente = primeiro.nome_fantasia || 'cliente';
+        // Usando speakAnnouncement para garantir consistência
+        speakAnnouncement(`Atenção! ${operador} finalizou o chamado do cliente ${cliente}`);
+      }, novosChamados.length > 0 ? 5000 : 500);
+    } else if (novosChamados.length === 0) {
+      // Se não houve finalizações nem novos, mostrar atualização silenciosa
       toast({
         title: "Dados atualizados",
-        description: `Dashboard atualizado • ${ativos.length} chamado(s) ativo(s)`,
+        description: `Dashboard atualizado. ${openTickets.length} abertos / ${lastFinished.length} finalizados (cache)`,
         duration: 2000,
       });
     }
 
     setPreviousTicketCount(newTicketCount);
     setTimeout(() => setIsRefreshing(false), 500);
+    setNextRefreshIn(refreshInterval);
+  }, refreshInterval);
 
-    // Reseta o countdown se houver refresh automático ativo
-    if (refreshInterval) {
-      setNextRefreshIn(refreshInterval);
-    }
-  };
+  return () => clearInterval(intervalId);
+}, [refreshInterval, refetch, toast, previousTicketCount]);
 
-  const dataInicialDateInput = useMemo(
-    () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
-    [filters.data_inicial]
-  );
-  const dataFinalDateInput = useMemo(
-    () => (filters.data_final ? parseDateSafely(filters.data_final) : null),
-    [filters.data_final]
-  );
+// Countdown timer
+useEffect(() => {
+  if (!nextRefreshIn || nextRefreshIn <= 0) return;
 
-  // Estado para o DateRangePicker
-  const dateRange = useMemo((): DateRange | undefined => {
-    const from = dataInicialDateInput ?? undefined;
-    const to = dataFinalDateInput ?? undefined;
-    if (!from && !to) return undefined;
-    return { from, to };
-  }, [dataInicialDateInput, dataFinalDateInput]);
+  const countdownId = setInterval(() => {
+    setNextRefreshIn((prev) => {
+      if (!prev || prev <= 1000) return null;
+      return prev - 1000;
+    });
+  }, 1000);
 
-  const handleDateRangeChange = (range: DateRange | undefined) => {
-    if (!range) {
-      updateFilters({ data_inicial: undefined, data_final: undefined });
+  return () => clearInterval(countdownId);
+}, [nextRefreshIn]);
+
+const tickets = ticketsResponse?.lista ?? [];
+
+// Atualiza contagem inicial de tickets e inicializa mapa de status
+useEffect(() => {
+  if (tickets.length > 0 && previousTicketCount === null) {
+    setPreviousTicketCount(tickets.length);
+
+    // Inicializar o mapa de status com os tickets atuais
+    const statusMap = new Map<number, string>();
+    tickets.forEach((ticket) => {
+      statusMap.set(ticket.codigo, ticket.status?.text || '');
+    });
+    previousTicketStatusesRef.current = statusMap;
+  }
+}, [tickets, previousTicketCount]);
+
+const dataInicialDate = useMemo(
+  () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
+  [filters.data_inicial]
+);
+const dataFinalDate = useMemo(
+  () => (filters.data_final ? parseDateSafely(filters.data_final) : null),
+  [filters.data_final]
+);
+
+const ticketsFiltrados = useMemo(() => {
+  if (!tickets.length) return [];
+
+  const dedupKey = (ticket: typeof tickets[0]) =>
+    ticket.codigo ?? ticket.id ?? `${ticket.id}-${ticket.codigo}`;
+
+  const dentroDoPeriodo = tickets.filter((ticket) => {
+    const dataRef = ticket.data_criacao || ticket.data_inicial || ticket.data_final;
+    const dataTicket = parseDateSafely(dataRef);
+    if (dataInicialDate && dataTicket && dataTicket < dataInicialDate) return false;
+    if (dataFinalDate && dataTicket && dataTicket > dataFinalDate) return false;
+    return true;
+  });
+
+  // Deduplicacao apos o filtro de data para manter apenas chamados do intervalo selecionado.
+  // Quando existem multiplos registros do mesmo codigo, mantemos o mais recente.
+  const map = new Map<number | string, typeof tickets[0]>();
+  dentroDoPeriodo.forEach((t) => {
+    const key = dedupKey(t);
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, t);
       return;
     }
-    updateFilters({
-      data_inicial: range.from ? format(startOfDay(range.from), "yyyy-MM-dd HH:mm:ss") : undefined,
-      data_final: range.to ? format(endOfDay(range.to), "yyyy-MM-dd HH:mm:ss") : undefined,
-    });
-  };
 
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          titulo="Visão Geral"
-          subtitulo="Dashboard executivo com indicadores principais"
-        />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-32" />
-          ))}
-        </div>
-      </div>
-    );
+    const refDate = (ticket: typeof tickets[0]) =>
+      parseDateSafely(ticket.data_final) ||
+      parseDateSafely(ticket.data_inicial) ||
+      parseDateSafely(ticket.data_criacao);
+
+    const newDate = refDate(t)?.getTime() || -Infinity;
+    const oldDate = refDate(existing)?.getTime() || -Infinity;
+
+    if (newDate >= oldDate) {
+      map.set(key, t);
+    }
+  });
+
+  return Array.from(map.values());
+}, [tickets, dataInicialDate, dataFinalDate]);
+
+// Helpers para diffs baseados em datas
+const diffsRespostaMin = useMemo(() => {
+  return ticketsFiltrados
+    .map((ticket) => {
+      const criacao = parseDateSafely(ticket.data_criacao);
+      const inicio = parseDateSafely(ticket.data_inicial);
+      if (!criacao || !inicio) return null;
+      const diffMs = inicio.getTime() - criacao.getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+      return diffMs / (1000 * 60);
+    })
+    .filter((v): v is number => v !== null);
+}, [ticketsFiltrados]);
+
+const diffsAtendimentoMin = useMemo(() => {
+  return ticketsFiltrados
+    .map((ticket) => {
+      const inicio = parseDateSafely(ticket.data_inicial);
+      const fim =
+        parseDateSafely(ticket.data_final) ||
+        parseDateSafely((ticket as any).data_solucao) ||
+        parseDateSafely(ticket.data_final);
+      if (!inicio || !fim) return null;
+      const diffMs = fim.getTime() - inicio.getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+      return diffMs / (1000 * 60);
+    })
+    .filter((v): v is number => v !== null);
+}, [ticketsFiltrados]);
+
+const calcularMediaCap = (valores: number[], capMinutos: number) => {
+  const filtrados = valores.filter((v) => v <= capMinutos);
+  if (!filtrados.length) return { media: 0, considerados: 0, total: valores.length };
+  const soma = filtrados.reduce((a, b) => a + b, 0);
+  return { media: soma / filtrados.length, considerados: filtrados.length, total: valores.length };
+};
+
+const aggregatedData = useMemo(() => {
+  if (!ticketsFiltrados.length) return null;
+  return aggregateTicketData(ticketsFiltrados);
+}, [ticketsFiltrados]);
+
+const slaData = useMemo(() => {
+  if (!ticketsFiltrados.length) return null;
+  return calculateSLADistribution(ticketsFiltrados);
+}, [ticketsFiltrados]);
+
+// Tempo médio de abertura/resposta (data_inicial - data_criacao) com cap de 3h
+const tempoMedioAbertura = useMemo(() => {
+  if (!diffsRespostaMin.length) return { minutos: 0, total: 0, considerados: 0 };
+  const { media, considerados, total } = calcularMediaCap(diffsRespostaMin, 180); // cap 3h
+  return { minutos: media, total, considerados };
+}, [diffsRespostaMin]);
+
+const tempoRespostaPorOperador = useMemo(() => {
+  if (!ticketsFiltrados.length) return [];
+
+  const capMinutos = 180; // cap em 3h para evitar distorÇõÇœes
+
+  const map = new Map<
+    string,
+    {
+      totalMinutos: number;
+      count: number;
+    }
+  >();
+
+  ticketsFiltrados.forEach((ticket) => {
+    const criacao = parseDateSafely(ticket.data_criacao);
+    const inicio = parseDateSafely(ticket.data_inicial);
+
+    if (!criacao || !inicio) return;
+
+    const diffMs = inicio.getTime() - criacao.getTime();
+    if (!Number.isFinite(diffMs) || diffMs < 0) return;
+
+    const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
+    const nome = ticket.nome;
+
+    if (!map.has(nome)) {
+      map.set(nome, { totalMinutos: 0, count: 0 });
+    }
+
+    const data = map.get(nome)!;
+    data.totalMinutos += minutos;
+    data.count += 1;
+  });
+
+  return Array.from(map.entries())
+    .map(([nome, data]) => ({
+      nome,
+      tempoMedioMinutos: data.count ? data.totalMinutos / data.count : 0,
+    }))
+    .sort((a, b) => b.tempoMedioMinutos - a.tempoMedioMinutos);
+}, [ticketsFiltrados]);
+
+const periodoDias = useMemo(
+  () => parseDateRangeDias(filters.data_inicial, filters.data_final),
+  [filters.data_inicial, filters.data_final]
+);
+
+const tempoMetrics = useMemo(() => {
+  if (!ticketsFiltrados.length) {
+    return {
+      tempoMedioResposta: 0,
+      tempoMedioAtendimento: 0,
+      respostaEmDia: 0,
+      respostaEstourada: 0,
+      atendimentoEmDia: 0,
+      atendimentoExpirado: 0,
+      totalRespMedida: 0,
+      totalAtendMedida: 0,
+    };
   }
 
-  if (!aggregatedData || !slaData) {
-    return (
+  // Resposta (data_inicial - data_criacao)
+  const respValid = diffsRespostaMin;
+  const respEmDia = respValid.filter((m) => m <= META_RESPOSTA_MINUTOS).length;
+  const respEstourada = respValid.filter((m) => m > META_RESPOSTA_MINUTOS).length;
+  const respMedia = calcularMediaCap(respValid, 180).media; // cap 3h
+
+  // Atendimento (data_final - data_inicial)
+  const atendValid = diffsAtendimentoMin;
+  const atendEmDia = atendValid.filter((m) => m <= META_ATENDIMENTO_HORAS * 60).length;
+  const atendExpirado = atendValid.filter((m) => m > META_ATENDIMENTO_HORAS * 60).length;
+  const atendMedia = calcularMediaCap(atendValid, 480).media; // cap 8h
+
+  return {
+    tempoMedioResposta: respMedia,
+    tempoMedioAtendimento: atendMedia,
+    respostaEmDia: respEmDia,
+    respostaEstourada: respEstourada,
+    atendimentoEmDia: atendEmDia,
+    atendimentoExpirado: atendExpirado,
+    totalRespMedida: respValid.length,
+    totalAtendMedida: atendValid.length,
+  };
+}, [ticketsFiltrados, diffsRespostaMin, diffsAtendimentoMin]);
+
+const conformidadePercentual =
+  slaData && tickets.length
+    ? (slaData.emDia / (slaData.emDia + slaData.emRisco + slaData.estourado)) * 100
+    : 0;
+
+const mediaEstimadaNotas = Number(((conformidadePercentual / 100) * 5).toFixed(1));
+
+const operadoresPorAtendimento = useMemo(() => {
+  if (!ticketsFiltrados.length) return [];
+  const capMinutos = 480; // cap 8h
+  const map = new Map<
+    string,
+    {
+      totalMinutos: number;
+      count: number;
+    }
+  >();
+
+  ticketsFiltrados.forEach((ticket) => {
+    const inicio = parseDateSafely(ticket.data_inicial);
+    const fim =
+      parseDateSafely(ticket.data_final) ||
+      parseDateSafely((ticket as any).data_solucao);
+    if (!inicio || !fim) return;
+    const diffMs = fim.getTime() - inicio.getTime();
+    if (!Number.isFinite(diffMs) || diffMs < 0) return;
+    const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
+    const nome = ticket.nome;
+
+    if (!map.has(nome)) {
+      map.set(nome, { totalMinutos: 0, count: 0 });
+    }
+    const data = map.get(nome)!;
+    data.totalMinutos += minutos;
+    data.count += 1;
+  });
+
+  return Array.from(map.entries())
+    .map(([nome, data]) => ({
+      nome,
+      tempoMedioAtendimentoMinutos: data.count ? data.totalMinutos / data.count : 0,
+    }))
+    .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
+}, [ticketsFiltrados]);
+
+const rankingOperadores = useMemo(() => {
+  if (!ticketsFiltrados.length) return [];
+  const map = new Map<string, number>();
+  ticketsFiltrados.forEach((ticket) => {
+    const nome = ticket.nome || "Sem nome";
+    map.set(nome, (map.get(nome) || 0) + 1);
+  });
+  const periodoDias = parseDateRangeDias(filters.data_inicial, filters.data_final);
+  return Array.from(map.entries())
+    .map(([nome, total]) => ({
+      nome,
+      total,
+      mediaDiaria: periodoDias > 0 ? total / periodoDias : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+}, [ticketsFiltrados, filters.data_inicial, filters.data_final]);
+
+// Ranking de operadores baseado APENAS em chamados ativos (Atendendo + Pausado)
+const rankingChamadosAtivos = useMemo(() => {
+  if (!chamadosAtivos.length) return [];
+  const map = new Map<string, { atendendo: number; pausado: number; total: number }>();
+
+  chamadosAtivos.forEach((ticket: any) => {
+    const nome = ticket.tecnico || "Não atribuído";
+    if (!map.has(nome)) {
+      map.set(nome, { atendendo: 0, pausado: 0, total: 0 });
+    }
+    const data = map.get(nome)!;
+    data.total += 1;
+    if (ticket.status === 'Atendendo') {
+      data.atendendo += 1;
+    } else if (ticket.status === 'Pausado') {
+      data.pausado += 1;
+    }
+  });
+
+  return Array.from(map.entries())
+    .map(([nome, data]) => ({
+      nome,
+      atendendo: data.atendendo,
+      pausado: data.pausado,
+      total: data.total,
+    }))
+    .sort((a, b) => b.total - a.total);
+}, [chamadosAtivos]);
+
+const handleDateChange = (type: "start" | "end", value: string) => {
+  if (!value) {
+    updateFilters({
+      [type === "start" ? "data_inicial" : "data_final"]: undefined,
+    });
+    return;
+  }
+
+  const parsed = parseISO(value);
+  if (!isValid(parsed)) return;
+
+  if (type === "start") {
+    updateFilters({ data_inicial: format(startOfDay(parsed), "yyyy-MM-dd HH:mm:ss") });
+  } else {
+    updateFilters({ data_final: format(endOfDay(parsed), "yyyy-MM-dd HH:mm:ss") });
+  }
+};
+
+const handleRefreshChange = (value: string) => {
+  if (value === "off") {
+    setRefreshInterval(null);
+    localStorage.removeItem('dashboard-refresh-interval');
+  } else {
+    const numValue = parseInt(value, 10);
+    setRefreshInterval(numValue);
+    localStorage.setItem('dashboard-refresh-interval', value);
+  }
+};
+
+const handleManualRefresh = async () => {
+  setIsRefreshing(true);
+
+  // 1. Atualizar dados do relatório
+  const result = await refetch();
+  const newTicketCount = result.data?.lista?.length || 0;
+
+  // 2. Atualizar chamados ativos (Atendendo + Pausado)
+  const openTickets = await fetchOpenTickets();
+  const ativos = openTickets.filter((c: any) =>
+    c.status === 'Atendendo' || c.status === 'Pausado'
+  );
+  setChamadosAtivos(ativos);
+  setOpenTicketsCount(ativos.length);
+
+  // Verifica se há novos tickets
+  if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
+    const newTickets = newTicketCount - previousTicketCount;
+
+    // Toca som de notificação
+    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWi77eefTRAMUKfj8LZjHAY4ktfyzHksBSR3yPDdkEAKE1+06+unVRULRp/h8r5uIAUsgs/y2Ik2CBlouO3nn00RDFCn4/C2YxwGOJPY8sx5KwUkeMjw3Y9AChRfsunrp1QUC0af4PK+bSAFLITP8NqJNgcZartuu+3nklERDFCm5PCzYhwGOJTa88tzKgUjd8Xwzo5ACxReu+rqo1QVC0Wf3/K9bSAFLYTO8tqJNwcZarsuu+znklEQS0/j8LRkHAU4lNrzzHgrBSN2xO/NjkALFFuz/ejmUxQLRp/g8axrHwUthM7y2ogzBhlosuzm3JBMEQ1Qq+PztGMcBjeV2vTMeSoFI3TC8M6OQAsVX7Po6KZYFA1Gn+Dyt2wdBCx/z/HYhzcFGWe58d+hTBANUavj87JiFQc3ltr0y3kqBSJzwu/NjT8MFFmx5+igWBQLRZ/f8rltIAQrgc7x2IgzBhposezm3I9LERFT/+TztWQcBTiT2fTMdioGI3K/8M+OQAsWXrPn6KFYFQxFn9/yvG0gBSp7zvHZiDQLGGe58N2hTBENUKvi8rJjHAU3k9n0zHcqBiJywvDPjUAMF1607+ihWBYMRZ/f8rltIAUrfM/x2IcyCxhnufDdoUwQC1Gr4vCyZBwFN5PZ9Mt2KgUicrzwz40/DBhftevov1gWDEWe3vK5ayAGK3vO8diHMgsYZ7nw3aFMEAtQq+Lwsl8cBjeR2fTLdSoFInLB8c+NPwwZX7Xs6L9YFgxFnt3yuWsgBSp7zvHYhzILGGa58N2gSA8KUKrh8LJfHAU3kdf0y3UqBSJywPTPjT8NHF+z7umvVxkMQ53c8rheIAYqe83z2YgyDB1lqevfnkUTCU+q4u+yXhsENo/W88x0KQQicsBxT4w/Dyh2yO3mnlQZDkKd2vO5XB4FKnrL8tmHMQsZY6rp3p1EFApOqOLtsVwcBDaOz/PMdCkEI3K9cU+LPw8occft5p5UGQ5Ands0uVweBSp5yvLZhzELGWOn6d6dRBQJTqbh7bFcHAQ2js/zzHMpBCNxvvFOiz8PKHHI7eaeUxgOQ5zb9LhcHgQqeMry');
+    audio.volume = 0.5;
+    audio.play().catch(() => { });
+
+    toast({
+      title: `🔔 ${newTickets} novo(s) chamado(s)!`,
+      description: "Novos tickets detectados",
+      duration: 4000,
+    });
+  } else {
+    toast({
+      title: "Dados atualizados",
+      description: `Dashboard atualizado • ${ativos.length} chamado(s) ativo(s)`,
+      duration: 2000,
+    });
+  }
+
+  setPreviousTicketCount(newTicketCount);
+  setTimeout(() => setIsRefreshing(false), 500);
+
+  // Reseta o countdown se houver refresh automático ativo
+  if (refreshInterval) {
+    setNextRefreshIn(refreshInterval);
+  }
+};
+
+const dataInicialDateInput = useMemo(
+  () => (filters.data_inicial ? parseDateSafely(filters.data_inicial) : null),
+  [filters.data_inicial]
+);
+const dataFinalDateInput = useMemo(
+  () => (filters.data_final ? parseDateSafely(filters.data_final) : null),
+  [filters.data_final]
+);
+
+// Estado para o DateRangePicker
+const dateRange = useMemo((): DateRange | undefined => {
+  const from = dataInicialDateInput ?? undefined;
+  const to = dataFinalDateInput ?? undefined;
+  if (!from && !to) return undefined;
+  return { from, to };
+}, [dataInicialDateInput, dataFinalDateInput]);
+
+const handleDateRangeChange = (range: DateRange | undefined) => {
+  if (!range) {
+    updateFilters({ data_inicial: undefined, data_final: undefined });
+    return;
+  }
+  updateFilters({
+    data_inicial: range.from ? format(startOfDay(range.from), "yyyy-MM-dd HH:mm:ss") : undefined,
+    data_final: range.to ? format(endOfDay(range.to), "yyyy-MM-dd HH:mm:ss") : undefined,
+  });
+};
+
+if (isLoading) {
+  return (
+    <div className="space-y-6">
       <PageHeader
         titulo="Visão Geral"
-        subtitulo="Nenhum dado disponível para o período selecionado"
+        subtitulo="Dashboard executivo com indicadores principais"
       />
-    );
-  }
-
-  const kpiCards = [
-    {
-      titulo: "Tickets Finalizados",
-      valor: aggregatedData.totalTickets.toLocaleString("pt-BR"),
-      detalhe: "",
-      icon: <Phone className="h-5 w-5 text-emerald-400" />,
-      className: "bg-emerald-500/10 border-emerald-500/40",
-    },
-    {
-      titulo: "Qtd Resposta em Dia",
-      valor: tempoMetrics.respostaEmDia.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalRespMedida
-        ? `${((tempoMetrics.respostaEmDia / tempoMetrics.totalRespMedida) * 100).toFixed(2)}%`
-        : "0%",
-      icon: <Timer className="h-5 w-5 text-sky-300" />,
-      className: "bg-slate-500/10 border-slate-400/40",
-    },
-    {
-      titulo: "Qtd Atendimento em Dia",
-      valor: tempoMetrics.atendimentoEmDia.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalAtendMedida
-        ? `${((tempoMetrics.atendimentoEmDia / tempoMetrics.totalAtendMedida) * 100).toFixed(2)}%`
-        : "0%",
-      icon: <Clock4 className="h-5 w-5 text-emerald-300" />,
-      className: "bg-slate-500/10 border-slate-400/40",
-    },
-    {
-      titulo: "Qtd Resposta Estourada",
-      valor: tempoMetrics.respostaEstourada.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalRespMedida
-        ? `${((tempoMetrics.respostaEstourada / tempoMetrics.totalRespMedida) * 100).toFixed(2)}%`
-        : "0%",
-      icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
-      className: "bg-red-500/10 border-red-500/40",
-      link: "/registros-expirados?tab=resposta",
-    },
-    {
-      titulo: "Qtd Atendimento Expirado",
-      valor: tempoMetrics.atendimentoExpirado.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalAtendMedida
-        ? `${((tempoMetrics.atendimentoExpirado / tempoMetrics.totalAtendMedida) * 100).toFixed(2)}%`
-        : "0%",
-      icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
-      className: "bg-red-600/10 border-red-500/50",
-      link: "/registros-expirados?tab=atendimento",
-    },
-  ];
-
-  const renderStars = () => {
-    const cheias = Math.floor(mediaEstimadaNotas);
-    return (
-      <div className="flex items-center gap-1">
-        {Array.from({ length: 5 }).map((_, idx) => (
-          <Star
-            key={idx}
-            className={cn(
-              "h-5 w-5",
-              idx < cheias ? "text-amber-400 fill-amber-400" : "text-muted-foreground"
-            )}
-          />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Skeleton key={i} className="h-32" />
         ))}
       </div>
-    );
-  };
+    </div>
+  );
+}
 
-  const tempoMedioRespostaGlobal = tempoMedioAbertura.minutos;
-  const topOperadores = rankingOperadores.slice(0, 4);
-
+if (!aggregatedData || !slaData) {
   return (
-    <div ref={reportRef} className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <PageHeader
-            titulo="Visão Geral"
-            subtitulo="Dashboard executivo inspirado no painel compartilhado"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportToPDF}
-            disabled={isExporting}
-            className="h-9 gap-2"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Exportando...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4" />
-                Exportar PDF
-              </>
-            )}
-          </Button>
-        </div>
+    <PageHeader
+      titulo="Visão Geral"
+      subtitulo="Nenhum dado disponível para o período selecionado"
+    />
+  );
+}
 
-        {/* Widget Top 3 Pesquisas (Header) */}
-        <div className="flex-1 px-4 hidden xl:block">
-          {rankingPesquisas.length > 0 && (
-            <div className="flex items-center justify-center h-full">
-              <div className="flex items-center gap-10 bg-slate-900/60 py-3 px-8 rounded-xl border border-yellow-500/20 shadow-lg shadow-yellow-500/5 backdrop-blur-md">
-                <div className="text-sm font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-2 px-2 border-r border-slate-700/50">
-                  <Trophy className="h-5 w-5" /> Top Avaliados
-                </div>
-                <div className="flex items-center gap-8 pr-2">
-                  {rankingPesquisas.map((item, idx) => (
-                    <div key={item.operador} className="flex items-center gap-4">
-                      <div className="relative">
-                        <Avatar className={cn("border-2 border-slate-900 ring-2 ring-offset-2 ring-offset-slate-950",
-                          idx === 0 ? "h-14 w-14 ring-yellow-500" :
-                            idx === 1 ? "h-12 w-12 ring-slate-400" :
-                              "h-12 w-12 ring-amber-700"
-                        )}>
-                          <AvatarImage src={getAvatarSrc(item.operador)} alt={item.operador} />
-                          <AvatarFallback className="text-xs bg-yellow-950 text-yellow-500 font-bold">
-                            {item.operador.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className={cn(
-                          "absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold border-2 border-slate-900 shadow-sm",
-                          idx === 0 ? "bg-yellow-400 text-black scale-110" :
-                            idx === 1 ? "bg-slate-300 text-black" : "bg-amber-700 text-white"
-                        )}>
-                          {idx + 1}
-                        </span>
-                      </div>
-                      <div className="flex flex-col leading-none gap-1">
-                        <span className={cn("font-bold text-slate-200", idx === 0 ? "text-base text-yellow-100" : "text-sm")}>
-                          {item.operador.split(' ')[0]}
-                        </span>
-                        <span className="text-xs text-muted-foreground font-medium bg-slate-800/80 px-2 py-0.5 rounded-full w-fit whitespace-nowrap">
-                          {item.quantidade} <span className="inline">avaliações</span>
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+const kpiCards = [
+  {
+    titulo: "Tickets Finalizados",
+    valor: aggregatedData.totalTickets.toLocaleString("pt-BR"),
+    detalhe: "",
+    icon: <Phone className="h-5 w-5 text-emerald-400" />,
+    className: "bg-emerald-500/10 border-emerald-500/40",
+  },
+  {
+    titulo: "Qtd Resposta em Dia",
+    valor: tempoMetrics.respostaEmDia.toLocaleString("pt-BR"),
+    detalhe: tempoMetrics.totalRespMedida
+      ? `${((tempoMetrics.respostaEmDia / tempoMetrics.totalRespMedida) * 100).toFixed(2)}%`
+      : "0%",
+    icon: <Timer className="h-5 w-5 text-sky-300" />,
+    className: "bg-slate-500/10 border-slate-400/40",
+  },
+  {
+    titulo: "Qtd Atendimento em Dia",
+    valor: tempoMetrics.atendimentoEmDia.toLocaleString("pt-BR"),
+    detalhe: tempoMetrics.totalAtendMedida
+      ? `${((tempoMetrics.atendimentoEmDia / tempoMetrics.totalAtendMedida) * 100).toFixed(2)}%`
+      : "0%",
+    icon: <Clock4 className="h-5 w-5 text-emerald-300" />,
+    className: "bg-slate-500/10 border-slate-400/40",
+  },
+  {
+    titulo: "Qtd Resposta Estourada",
+    valor: tempoMetrics.respostaEstourada.toLocaleString("pt-BR"),
+    detalhe: tempoMetrics.totalRespMedida
+      ? `${((tempoMetrics.respostaEstourada / tempoMetrics.totalRespMedida) * 100).toFixed(2)}%`
+      : "0%",
+    icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
+    className: "bg-red-500/10 border-red-500/40",
+    link: "/registros-expirados?tab=resposta",
+  },
+  {
+    titulo: "Qtd Atendimento Expirado",
+    valor: tempoMetrics.atendimentoExpirado.toLocaleString("pt-BR"),
+    detalhe: tempoMetrics.totalAtendMedida
+      ? `${((tempoMetrics.atendimentoExpirado / tempoMetrics.totalAtendMedida) * 100).toFixed(2)}%`
+      : "0%",
+    icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
+    className: "bg-red-600/10 border-red-500/50",
+    link: "/registros-expirados?tab=atendimento",
+  },
+];
+
+const renderStars = () => {
+  const cheias = Math.floor(mediaEstimadaNotas);
+  return (
+    <div className="flex items-center gap-1">
+      {Array.from({ length: 5 }).map((_, idx) => (
+        <Star
+          key={idx}
+          className={cn(
+            "h-5 w-5",
+            idx < cheias ? "text-amber-400 fill-amber-400" : "text-muted-foreground"
           )}
-        </div>
-        <div className="flex gap-3">
-          <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
-            <CardHeader className="py-2 px-3">
-              <CardTitle className="text-emerald-400 text-sm">META 00:05:00</CardTitle>
-            </CardHeader>
-            <CardContent className="py-2 px-3">
-              <div className="text-2xl font-mono font-bold">
-                {formatMinutosCompleto(tempoMedioAbertura.minutos)}
-              </div>
-              <p className="text-xs text-muted-foreground">Tempo médio de abertura</p>
-            </CardContent>
-          </Card>
-          <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
-            <CardHeader className="py-2 px-3">
-              <CardTitle className="text-emerald-400 text-sm">META 04:00:00</CardTitle>
-            </CardHeader>
-            <CardContent className="py-2 px-3">
-              <div className="text-2xl font-mono font-bold">
-                {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
-              </div>
-              <p className="text-xs text-muted-foreground">Tempo médio de solução</p>
-            </CardContent>
-          </Card>
-        </div>
+        />
+      ))}
+    </div>
+  );
+};
+
+const tempoMedioRespostaGlobal = tempoMedioAbertura.minutos;
+const topOperadores = rankingOperadores.slice(0, 4);
+
+return (
+  <div ref={reportRef} className="space-y-6">
+    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div className="flex items-center gap-4">
+        <PageHeader
+          titulo="Visão Geral"
+          subtitulo="Dashboard executivo inspirado no painel compartilhado"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportToPDF}
+          disabled={isExporting}
+          className="h-9 gap-2"
+        >
+          {isExporting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Exportando...
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4" />
+              Exportar PDF
+            </>
+          )}
+        </Button>
       </div>
 
-      {/* Filtro de datas */}
-      <Card className="border-dashed">
-        <CardContent className="py-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4 sm:flex-wrap">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Período</span>
-              <DateRangePicker
-                dateRange={dateRange}
-                onDateRangeChange={handleDateRangeChange}
-                placeholder="Selecione o período"
-              />
-            </div>
-            <div className="flex flex-col gap-1 ml-auto">
-              <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1">
-                <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
-                Atualização automática
-              </span>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={refreshInterval ? String(refreshInterval) : "off"}
-                  onValueChange={handleRefreshChange}
-                >
-                  <SelectTrigger className="sm:w-[180px]">
-                    <SelectValue placeholder="Desativado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="off">Desativado</SelectItem>
-                    {REFRESH_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {nextRefreshIn && nextRefreshIn > 0 && (
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {Math.floor(nextRefreshIn / 1000)}s
-                  </span>
-                )}
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleManualRefresh}
-                  disabled={isRefreshing}
-                  className="h-9 w-9"
-                  title="Atualizar agora"
-                >
-                  <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    playNewTicketSound();
-                    speakAnnouncement("Teste de áudio. Atenção! Foi aberto um chamado de teste!");
-                    toast({
-                      title: "🔊 Teste de Áudio",
-                      description: "Se você ouviu o som e a voz, está funcionando!",
-                      duration: 5000,
-                    });
-                  }}
-                  className="h-9 text-xs"
-                  title="Testar notificação por voz"
-                >
-                  🔊 Testar Voz
-                </Button>
+      {/* Widget Top 3 Pesquisas (Header) */}
+      <div className="flex-1 px-4 hidden xl:block">
+        {rankingPesquisas.length > 0 && (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex items-center gap-10 bg-slate-900/60 py-3 px-8 rounded-xl border border-yellow-500/20 shadow-lg shadow-yellow-500/5 backdrop-blur-md">
+              <div className="text-sm font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-2 px-2 border-r border-slate-700/50">
+                <Trophy className="h-5 w-5" /> Top Avaliados
+              </div>
+              <div className="flex items-center gap-8 pr-2">
+                {rankingPesquisas.map((item, idx) => (
+                  <div key={item.operador} className="flex items-center gap-4">
+                    <div className="relative">
+                      <Avatar className={cn("border-2 border-slate-900 ring-2 ring-offset-2 ring-offset-slate-950",
+                        idx === 0 ? "h-14 w-14 ring-yellow-500" :
+                          idx === 1 ? "h-12 w-12 ring-slate-400" :
+                            "h-12 w-12 ring-amber-700"
+                      )}>
+                        <AvatarImage src={getAvatarSrc(item.operador)} alt={item.operador} />
+                        <AvatarFallback className="text-xs bg-yellow-950 text-yellow-500 font-bold">
+                          {item.operador.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className={cn(
+                        "absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold border-2 border-slate-900 shadow-sm",
+                        idx === 0 ? "bg-yellow-400 text-black scale-110" :
+                          idx === 1 ? "bg-slate-300 text-black" : "bg-amber-700 text-white"
+                      )}>
+                        {idx + 1}
+                      </span>
+                    </div>
+                    <div className="flex flex-col leading-none gap-1">
+                      <span className={cn("font-bold text-slate-200", idx === 0 ? "text-base text-yellow-100" : "text-sm")}>
+                        {item.operador.split(' ')[0]}
+                      </span>
+                      <span className="text-xs text-muted-foreground font-medium bg-slate-800/80 px-2 py-0.5 rounded-full w-fit whitespace-nowrap">
+                        {item.quantidade} <span className="inline">avaliações</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
+          </div>
+        )}
+      </div>
+      <div className="flex gap-3">
+        <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
+          <CardHeader className="py-2 px-3">
+            <CardTitle className="text-emerald-400 text-sm">META 00:05:00</CardTitle>
+          </CardHeader>
+          <CardContent className="py-2 px-3">
+            <div className="text-2xl font-mono font-bold">
+              {formatMinutosCompleto(tempoMedioAbertura.minutos)}
+            </div>
+            <p className="text-xs text-muted-foreground">Tempo médio de abertura</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
+          <CardHeader className="py-2 px-3">
+            <CardTitle className="text-emerald-400 text-sm">META 04:00:00</CardTitle>
+          </CardHeader>
+          <CardContent className="py-2 px-3">
+            <div className="text-2xl font-mono font-bold">
+              {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
+            </div>
+            <p className="text-xs text-muted-foreground">Tempo médio de solução</p>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+
+    {/* Filtro de datas */}
+    <Card className="border-dashed">
+      <CardContent className="py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4 sm:flex-wrap">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase text-muted-foreground">Período</span>
+            <DateRangePicker
+              dateRange={dateRange}
+              onDateRangeChange={handleDateRangeChange}
+              placeholder="Selecione o período"
+            />
+          </div>
+          <div className="flex flex-col gap-1 ml-auto">
+            <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1">
+              <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
+              Atualização automática
+            </span>
+            <div className="flex items-center gap-2">
+              <Select
+                value={refreshInterval ? String(refreshInterval) : "off"}
+                onValueChange={handleRefreshChange}
+              >
+                <SelectTrigger className="sm:w-[180px]">
+                  <SelectValue placeholder="Desativado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">Desativado</SelectItem>
+                  {REFRESH_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {nextRefreshIn && nextRefreshIn > 0 && (
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {Math.floor(nextRefreshIn / 1000)}s
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="h-9 w-9"
+                title="Atualizar agora"
+              >
+                <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  playNewTicketSound();
+                  speakAnnouncement("Teste de áudio. Atenção! Foi aberto um chamado de teste!");
+                  toast({
+                    title: "🔊 Teste de Áudio",
+                    description: "Se você ouviu o som e a voz, está funcionando!",
+                    duration: 5000,
+                  });
+                }}
+                className="h-9 text-xs"
+                title="Testar notificação por voz"
+              >
+                🔊 Testar Voz
+              </Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    {/* Faixa de KPIs principais */}
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+      {kpiCards.map((card) => (
+        <Card
+          key={card.titulo}
+          className={cn(
+            "rounded-md shadow-sm border bg-gradient-to-br from-background via-background to-background",
+            card.className,
+            card.link && "cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all"
+          )}
+          onClick={() => card.link && setLocation(card.link)}
+        >
+          <CardContent className="p-4 space-y-1">
+            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span>{card.titulo}</span>
+              {card.icon}
+            </div>
+            <div className="text-3xl font-mono font-bold leading-tight">
+              {card.valor}
+            </div>
+            {card.detalhe && (
+              <div className="text-sm text-muted-foreground">{card.detalhe}</div>
+            )}
+          </CardContent>
+        </Card>
+      ))
+      }
+    </div>
+
+    {/* Gráficos de tempo médio + top operadores */}
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Timer className="h-4 w-4 text-foreground/80" />
+            Tempo Médio de Resposta
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-sm text-muted-foreground">
+            Meta: {formatMinutosCompleto(META_RESPOSTA_MINUTOS)} • Atual:{" "}
+            {formatMinutosCompleto(tempoMedioRespostaGlobal)}
+          </div>
+          <div className="space-y-2">
+            {tempoRespostaPorOperador.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
+            )}
+            {tempoRespostaPorOperador.slice(0, 8).map((op) => {
+              const maxValor = tempoRespostaPorOperador[0]?.tempoMedioMinutos || 1;
+              const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
+
+              // Buscar dados do ranking para este operador
+              const rankingData = rankingOperadores.find(r => r.nome === op.nome);
+              const totalTickets = rankingData?.total || 0;
+              const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
+
+              return (
+                <div key={op.nome} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">{op.nome}</span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {formatMinutosCompleto(op.tempoMedioMinutos)}
+                    </span>
+                  </div>
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="group relative cursor-pointer"
+                          onClick={() => {
+                            updateFilters({ analista: op.nome });
+                            setLocation('/operacional');
+                          }}
+                        >
+                          <Progress value={value} className="h-2 transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-blue-500/30" />
+                          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/20 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="top"
+                        className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-blue-500/30 shadow-xl shadow-blue-500/20 p-0 overflow-hidden"
+                      >
+                        <div className="p-3 min-w-[220px]">
+                          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-blue-500/20">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
+                              {op.nome.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-bold text-white text-sm">{op.nome}</p>
+                              <p className="text-[10px] text-blue-300/70">Tempo de Resposta</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                              <p className="text-blue-400 font-mono text-lg font-bold">{totalTickets}</p>
+                              <p className="text-slate-400 text-[10px]">Tickets</p>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                              <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
+                              <p className="text-slate-400 text-[10px]">Média/Dia</p>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                              <p className="text-emerald-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioMinutos)}</p>
+                              <p className="text-slate-400 text-[10px]">Tempo</p>
+                            </div>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-slate-700/50">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-slate-400">Comparação</span>
+                              <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
+                            </div>
+                            <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
+                              <div className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                            </div>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-blue-500/20 text-center">
+                            <span className="text-[10px] text-blue-400">👆 Clique para ver detalhes</span>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
 
-      {/* Faixa de KPIs principais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-        {kpiCards.map((card) => (
-          <Card
-            key={card.titulo}
-            className={cn(
-              "rounded-md shadow-sm border bg-gradient-to-br from-background via-background to-background",
-              card.className,
-              card.link && "cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all"
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock4 className="h-4 w-4 text-foreground/80" />
+            Tempo Médio de Atendimento
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-sm text-muted-foreground">
+            Meta: {formatMinutosCompleto(META_ATENDIMENTO_HORAS * 60)} • Atual:{" "}
+            {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
+          </div>
+          <div className="space-y-2">
+            {operadoresPorAtendimento.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
             )}
-            onClick={() => card.link && setLocation(card.link)}
-          >
-            <CardContent className="p-4 space-y-1">
-              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <span>{card.titulo}</span>
-                {card.icon}
-              </div>
-              <div className="text-3xl font-mono font-bold leading-tight">
-                {card.valor}
-              </div>
-              {card.detalhe && (
-                <div className="text-sm text-muted-foreground">{card.detalhe}</div>
-              )}
-            </CardContent>
-          </Card>
-        ))
-        }
-      </div>
+            {operadoresPorAtendimento.slice(0, 8).map((op) => {
+              const maxValor =
+                operadoresPorAtendimento[0]?.tempoMedioAtendimentoMinutos || 1;
+              const value = maxValor
+                ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100
+                : 0;
 
-      {/* Gráficos de tempo médio + top operadores */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Timer className="h-4 w-4 text-foreground/80" />
-              Tempo Médio de Resposta
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm text-muted-foreground">
-              Meta: {formatMinutosCompleto(META_RESPOSTA_MINUTOS)} • Atual:{" "}
-              {formatMinutosCompleto(tempoMedioRespostaGlobal)}
-            </div>
-            <div className="space-y-2">
-              {tempoRespostaPorOperador.length === 0 && (
-                <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
-              )}
-              {tempoRespostaPorOperador.slice(0, 8).map((op) => {
-                const maxValor = tempoRespostaPorOperador[0]?.tempoMedioMinutos || 1;
-                const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
+              // Buscar dados do ranking para este operador
+              const rankingData = rankingOperadores.find(r => r.nome === op.nome);
+              const totalTickets = rankingData?.total || 0;
+              const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
 
-                // Buscar dados do ranking para este operador
-                const rankingData = rankingOperadores.find(r => r.nome === op.nome);
-                const totalTickets = rankingData?.total || 0;
-                const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
-
-                return (
-                  <div key={op.nome} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{op.nome}</span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {formatMinutosCompleto(op.tempoMedioMinutos)}
-                      </span>
-                    </div>
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="group relative cursor-pointer"
-                            onClick={() => {
-                              updateFilters({ analista: op.nome });
-                              setLocation('/operacional');
-                            }}
-                          >
-                            <Progress value={value} className="h-2 transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-blue-500/30" />
-                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/20 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-blue-500/30 shadow-xl shadow-blue-500/20 p-0 overflow-hidden"
-                        >
-                          <div className="p-3 min-w-[220px]">
-                            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-blue-500/20">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
-                                {op.nome.slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="font-bold text-white text-sm">{op.nome}</p>
-                                <p className="text-[10px] text-blue-300/70">Tempo de Resposta</p>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-blue-400 font-mono text-lg font-bold">{totalTickets}</p>
-                                <p className="text-slate-400 text-[10px]">Tickets</p>
-                              </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
-                                <p className="text-slate-400 text-[10px]">Média/Dia</p>
-                              </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-emerald-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioMinutos)}</p>
-                                <p className="text-slate-400 text-[10px]">Tempo</p>
-                              </div>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-slate-700/50">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-slate-400">Comparação</span>
-                                <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
-                              </div>
-                              <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
-                                <div className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
-                              </div>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-blue-500/20 text-center">
-                              <span className="text-[10px] text-blue-400">👆 Clique para ver detalhes</span>
-                            </div>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock4 className="h-4 w-4 text-foreground/80" />
-              Tempo Médio de Atendimento
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm text-muted-foreground">
-              Meta: {formatMinutosCompleto(META_ATENDIMENTO_HORAS * 60)} • Atual:{" "}
-              {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
-            </div>
-            <div className="space-y-2">
-              {operadoresPorAtendimento.length === 0 && (
-                <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
-              )}
-              {operadoresPorAtendimento.slice(0, 8).map((op) => {
-                const maxValor =
-                  operadoresPorAtendimento[0]?.tempoMedioAtendimentoMinutos || 1;
-                const value = maxValor
-                  ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100
-                  : 0;
-
-                // Buscar dados do ranking para este operador
-                const rankingData = rankingOperadores.find(r => r.nome === op.nome);
-                const totalTickets = rankingData?.total || 0;
-                const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
-
-                return (
-                  <div key={op.nome} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{op.nome}</span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}
-                      </span>
-                    </div>
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="group relative cursor-pointer"
-                            onClick={() => {
-                              updateFilters({ analista: op.nome });
-                              window.location.href = '/operacional';
-                            }}
-                          >
-                            <Progress value={value} className="h-2 bg-muted transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-emerald-500/30" />
-                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/20 to-emerald-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-emerald-500/30 shadow-xl shadow-emerald-500/20 p-0 overflow-hidden"
-                        >
-                          <div className="p-3 min-w-[220px]">
-                            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-emerald-500/20">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
-                                {op.nome.slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="font-bold text-white text-sm">{op.nome}</p>
-                                <p className="text-[10px] text-emerald-300/70">Tempo de Atendimento</p>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-emerald-400 font-mono text-lg font-bold">{totalTickets}</p>
-                                <p className="text-slate-400 text-[10px]">Tickets</p>
-                              </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
-                                <p className="text-slate-400 text-[10px]">Média/Dia</p>
-                              </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-cyan-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}</p>
-                                <p className="text-slate-400 text-[10px]">Tempo</p>
-                              </div>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-slate-700/50">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-slate-400">Comparação</span>
-                                <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
-                              </div>
-                              <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
-                                <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
-                              </div>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-emerald-500/20 text-center">
-                              <span className="text-[10px] text-emerald-400">👆 Clique para ver detalhes</span>
-                            </div>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/70 border border-border/70 shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-foreground/80" />
-              Top 4 Operadores
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {topOperadores.length === 0 && (
-              <p className="text-sm text-muted-foreground">Sem dados no período.</p>
-            )}
-            {topOperadores.map((op, idx) => {
-              const avatarSrc = getAvatarSrc(op.nome);
-              const isFirst = idx === 0;
-              const isSecond = idx === 1;
-              const isThird = idx === 2;
-              const trophy = isFirst ? "🏆" : isSecond ? "🥈" : isThird ? "🥉" : null;
-              const sizeClass = isFirst ? "h-12 w-12" : "h-10 w-10";
               return (
-                <div
-                  key={op.nome}
-                  className={cn(
-                    "flex items-center justify-between rounded-md border border-border/60 px-3 py-2 transition",
-                    isFirst
-                      ? "bg-amber-50/5 border-amber-500/50 ring-1 ring-amber-500/60 scale-[1.02]"
-                      : "",
-                    isSecond ? "border-slate-500/40" : "",
-                    isThird ? "border-amber-700/30" : ""
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="text-xs font-semibold text-muted-foreground">#{idx + 1}</div>
-                    <Avatar className={sizeClass}>
-                      {avatarSrc ? <AvatarImage src={avatarSrc} alt={op.nome} /> : null}
-                      <AvatarFallback>{op.nome.slice(0, 2).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex items-center gap-2">
-                      {trophy && (
-                        <span className={cn("text-lg", isFirst ? "text-amber-400" : isSecond ? "text-slate-300" : "text-amber-700")} role="img" aria-label="trofeu">
-                          {trophy}
-                        </span>
-                      )}
-                      <div>
+                <div key={op.nome} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">{op.nome}</span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}
+                    </span>
+                  </div>
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
                         <div
-                          className={cn(
-                            "leading-tight",
-                            isFirst ? "font-semibold text-amber-200 text-base" : "font-semibold"
-                          )}
+                          className="group relative cursor-pointer"
+                          onClick={() => {
+                            updateFilters({ analista: op.nome });
+                            window.location.href = '/operacional';
+                          }}
                         >
-                          {op.nome}
+                          <Progress value={value} className="h-2 bg-muted transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-emerald-500/30" />
+                          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/20 to-emerald-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {op.total} chamados • {op.mediaDiaria.toFixed(2)} / dia
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="top"
+                        className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-emerald-500/30 shadow-xl shadow-emerald-500/20 p-0 overflow-hidden"
+                      >
+                        <div className="p-3 min-w-[220px]">
+                          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-emerald-500/20">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
+                              {op.nome.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-bold text-white text-sm">{op.nome}</p>
+                              <p className="text-[10px] text-emerald-300/70">Tempo de Atendimento</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                              <p className="text-emerald-400 font-mono text-lg font-bold">{totalTickets}</p>
+                              <p className="text-slate-400 text-[10px]">Tickets</p>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                              <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
+                              <p className="text-slate-400 text-[10px]">Média/Dia</p>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                              <p className="text-cyan-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}</p>
+                              <p className="text-slate-400 text-[10px]">Tempo</p>
+                            </div>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-slate-700/50">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-slate-400">Comparação</span>
+                              <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
+                            </div>
+                            <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
+                              <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                            </div>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-emerald-500/20 text-center">
+                            <span className="text-[10px] text-emerald-400">👆 Clique para ver detalhes</span>
+                          </div>
                         </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card/70 border border-border/70 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-foreground/80" />
+            Top 4 Operadores
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {topOperadores.length === 0 && (
+            <p className="text-sm text-muted-foreground">Sem dados no período.</p>
+          )}
+          {topOperadores.map((op, idx) => {
+            const avatarSrc = getAvatarSrc(op.nome);
+            const isFirst = idx === 0;
+            const isSecond = idx === 1;
+            const isThird = idx === 2;
+            const trophy = isFirst ? "🏆" : isSecond ? "🥈" : isThird ? "🥉" : null;
+            const sizeClass = isFirst ? "h-12 w-12" : "h-10 w-10";
+            return (
+              <div
+                key={op.nome}
+                className={cn(
+                  "flex items-center justify-between rounded-md border border-border/60 px-3 py-2 transition",
+                  isFirst
+                    ? "bg-amber-50/5 border-amber-500/50 ring-1 ring-amber-500/60 scale-[1.02]"
+                    : "",
+                  isSecond ? "border-slate-500/40" : "",
+                  isThird ? "border-amber-700/30" : ""
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="text-xs font-semibold text-muted-foreground">#{idx + 1}</div>
+                  <Avatar className={sizeClass}>
+                    {avatarSrc ? <AvatarImage src={avatarSrc} alt={op.nome} /> : null}
+                    <AvatarFallback>{op.nome.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex items-center gap-2">
+                    {trophy && (
+                      <span className={cn("text-lg", isFirst ? "text-amber-400" : isSecond ? "text-slate-300" : "text-amber-700")} role="img" aria-label="trofeu">
+                        {trophy}
+                      </span>
+                    )}
+                    <div>
+                      <div
+                        className={cn(
+                          "leading-tight",
+                          isFirst ? "font-semibold text-amber-200 text-base" : "font-semibold"
+                        )}
+                      >
+                        {op.nome}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {op.total} chamados • {op.mediaDiaria.toFixed(2)} / dia
                       </div>
                     </div>
                   </div>
                 </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-
-
-      </div>
-
-      {/* Chamados Ativos (Atendendo + Pausado) */}
-      <Card className="border-2 border-green-500/30">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-green-500" />
-            Chamados Ativos por Operador
-            <span className="ml-2 text-sm font-normal text-muted-foreground">
-              ({chamadosAtivos.length} chamados em andamento)
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {rankingChamadosAtivos.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">
-              Nenhum chamado ativo no momento.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Operador</TableHead>
-                  <TableHead>Avatar</TableHead>
-                  <TableHead className="text-center">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="w-3 h-3 rounded-full bg-green-500"></span>
-                      Atendendo
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-center">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
-                      Pausado
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-center">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rankingChamadosAtivos.map((op) => (
-                  <TableRow
-                    key={op.nome}
-                    className="cursor-pointer hover:bg-green-500/10 transition-colors"
-                    onClick={() => {
-                      updateFilters({ analista: op.nome });
-                      // Passar status na URL para filtrar na página de destino
-                      setLocation(`/operacional?status=Atendendo,Pausado`);
-                    }}
-                  >
-                    <TableCell className="font-medium">{op.nome}</TableCell>
-                    <TableCell>
-                      <Avatar className="h-10 w-10 border border-border/80">
-                        <AvatarImage src={getAvatarSrc(op.nome)} alt={op.nome} />
-                        <AvatarFallback className="bg-muted text-foreground">
-                          {op.nome.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {op.atendendo > 0 ? (
-                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-green-500 text-white font-bold text-sm">
-                          {op.atendendo}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {op.pausado > 0 ? (
-                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-yellow-500 text-black font-bold text-sm">
-                          {op.pausado}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center font-mono text-sm font-bold">
-                      {op.total}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
+
+
     </div>
-  );
+
+    {/* Chamados Ativos (Atendendo + Pausado) */}
+    <Card className="border-2 border-green-500/30">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5 text-green-500" />
+          Chamados Ativos por Operador
+          <span className="ml-2 text-sm font-normal text-muted-foreground">
+            ({chamadosAtivos.length} chamados em andamento)
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {rankingChamadosAtivos.length === 0 ? (
+          <p className="text-muted-foreground text-center py-8">
+            Nenhum chamado ativo no momento.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Operador</TableHead>
+                <TableHead>Avatar</TableHead>
+                <TableHead className="text-center">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                    Atendendo
+                  </span>
+                </TableHead>
+                <TableHead className="text-center">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
+                    Pausado
+                  </span>
+                </TableHead>
+                <TableHead className="text-center">Total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rankingChamadosAtivos.map((op) => (
+                <TableRow
+                  key={op.nome}
+                  className="cursor-pointer hover:bg-green-500/10 transition-colors"
+                  onClick={() => {
+                    updateFilters({ analista: op.nome });
+                    // Passar status na URL para filtrar na página de destino
+                    setLocation(`/operacional?status=Atendendo,Pausado`);
+                  }}
+                >
+                  <TableCell className="font-medium">{op.nome}</TableCell>
+                  <TableCell>
+                    <Avatar className="h-10 w-10 border border-border/80">
+                      <AvatarImage src={getAvatarSrc(op.nome)} alt={op.nome} />
+                      <AvatarFallback className="bg-muted text-foreground">
+                        {op.nome.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {op.atendendo > 0 ? (
+                      <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-green-500 text-white font-bold text-sm">
+                        {op.atendendo}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {op.pausado > 0 ? (
+                      <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-yellow-500 text-black font-bold text-sm">
+                        {op.pausado}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center font-mono text-sm font-bold">
+                    {op.total}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  </div>
+);
 }
