@@ -326,8 +326,9 @@ export default function Home() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
 
-  // Estado para exibir contagem de chamados abertos
+  // Estado para exibir contagem e dados de chamados abertos (Atendendo + Pausado)
   const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
+  const [chamadosAtivos, setChamadosAtivos] = useState<any[]>([]);
 
   // Função para buscar chamados abertos
   const fetchOpenTickets = async () => {
@@ -345,6 +346,20 @@ export default function Home() {
       return [];
     }
   };
+
+  // Buscar chamados ativos (Atendendo + Pausado) ao carregar a página
+  useEffect(() => {
+    const loadChamadosAtivos = async () => {
+      const chamados = await fetchOpenTickets();
+      // Filtrar apenas Atendendo e Pausado
+      const ativos = chamados.filter((c: any) =>
+        c.status === 'Atendendo' || c.status === 'Pausado'
+      );
+      setChamadosAtivos(ativos);
+      setOpenTicketsCount(ativos.length);
+    };
+    loadChamadosAtivos();
+  }, []);
 
   // Função para tocar som de alerta (novo chamado)
   const playNewTicketSound = () => {
@@ -479,7 +494,13 @@ export default function Home() {
       // 2. Buscar chamados abertos (NOVO)
       const openTickets = await fetchOpenTickets();
       console.log('📋 Chamados abertos recebidos:', openTickets.length);
-      setOpenTicketsCount(openTickets.length);
+
+      // Atualizar chamados ativos (Atendendo + Pausado) para exibição na Visão Geral
+      const ativos = openTickets.filter((c: any) =>
+        c.status === 'Atendendo' || c.status === 'Pausado'
+      );
+      setChamadosAtivos(ativos);
+      setOpenTicketsCount(ativos.length);
 
       // 3. Detectar NOVOS chamados abertos
       const currentOpenIds = new Set<number>(openTickets.map((t: any) => t.codigo || t.id));
@@ -954,6 +975,35 @@ export default function Home() {
       }))
       .sort((a, b) => b.total - a.total);
   }, [ticketsFiltrados, filters.data_inicial, filters.data_final]);
+
+  // Ranking de operadores baseado APENAS em chamados ativos (Atendendo + Pausado)
+  const rankingChamadosAtivos = useMemo(() => {
+    if (!chamadosAtivos.length) return [];
+    const map = new Map<string, { atendendo: number; pausado: number; total: number }>();
+
+    chamadosAtivos.forEach((ticket: any) => {
+      const nome = ticket.tecnico || "Não atribuído";
+      if (!map.has(nome)) {
+        map.set(nome, { atendendo: 0, pausado: 0, total: 0 });
+      }
+      const data = map.get(nome)!;
+      data.total += 1;
+      if (ticket.status === 'Atendendo') {
+        data.atendendo += 1;
+      } else if (ticket.status === 'Pausado') {
+        data.pausado += 1;
+      }
+    });
+
+    return Array.from(map.entries())
+      .map(([nome, data]) => ({
+        nome,
+        atendendo: data.atendendo,
+        pausado: data.pausado,
+        total: data.total,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [chamadosAtivos]);
 
   const handleDateChange = (type: "start" | "end", value: string) => {
     if (!value) {
@@ -1562,47 +1612,81 @@ export default function Home() {
         </Card>
       </div>
 
-      {/* Ranking de operadores */}
-      <Card>
+      {/* Chamados Ativos (Atendendo + Pausado) */}
+      <Card className="border-2 border-green-500/30">
         <CardHeader>
-          <CardTitle>Ranking por operador</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-green-500" />
+            Chamados Ativos por Operador
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({chamadosAtivos.length} chamados em andamento)
+            </span>
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableCaption>
-              Média diária calculada para o período de {periodoDias} dia(s) selecionado(s).
-            </TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Avatar</TableHead>
-                <TableHead>Quantidade Total</TableHead>
-                <TableHead>Média de Chamados por Dia</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rankingOperadores.map((op) => {
-                const mediaDiaria =
-                  periodoDias > 0 ? op.mediaDiaria.toFixed(2) : "0.00";
-                return (
+          {rankingChamadosAtivos.length === 0 ? (
+            <p className="text-muted-foreground text-center py-8">
+              Nenhum chamado ativo no momento.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Operador</TableHead>
+                  <TableHead>Avatar</TableHead>
+                  <TableHead className="text-center">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                      Atendendo
+                    </span>
+                  </TableHead>
+                  <TableHead className="text-center">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
+                      Pausado
+                    </span>
+                  </TableHead>
+                  <TableHead className="text-center">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rankingChamadosAtivos.map((op) => (
                   <TableRow key={op.nome}>
                     <TableCell className="font-medium">{op.nome}</TableCell>
                     <TableCell>
                       <Avatar className="h-10 w-10 border border-border/80">
+                        <AvatarImage src={getAvatarSrc(op.nome)} alt={op.nome} />
                         <AvatarFallback className="bg-muted text-foreground">
                           {op.nome.slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                     </TableCell>
-                    <TableCell className="font-mono text-sm">
+                    <TableCell className="text-center">
+                      {op.atendendo > 0 ? (
+                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-green-500 text-white font-bold text-sm">
+                          {op.atendendo}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {op.pausado > 0 ? (
+                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-yellow-500 text-black font-bold text-sm">
+                          {op.pausado}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center font-mono text-sm font-bold">
                       {op.total}
                     </TableCell>
-                    <TableCell className="font-mono text-sm">{mediaDiaria}</TableCell>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

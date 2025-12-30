@@ -471,15 +471,24 @@ export async function registerRoutes(
     // Extrair parâmetros do request
     const { status = "ChamadosAbertos", pagina = 1, total_registros = 50 } = req.body;
 
+    // Mapear valores de status para os valores aceitos pela API Milvus
+    // A API usa 'ChamadosAbertos' para listar chamados em atendimento
+    const statusMap: Record<string, string> = {
+      'EmAtendimento': 'ChamadosAbertos',
+      'Atendendo': 'ChamadosAbertos',
+      'ChamadosAbertos': 'ChamadosAbertos',
+    };
+    const statusFinal = statusMap[status] || status;
+
     console.log("=== CHAMADOS Proxy Request ===");
-    console.log("Status:", status);
+    console.log("Status recebido:", status, "→ enviado:", statusFinal);
     console.log("Pagina:", pagina);
 
     // Construir body conforme documentação Milvus
     const milvusBody = {
       filtro_body: {
         cliente_token: "",
-        status: status
+        status: statusFinal
       },
       is_descending: true,
       order_by: "data_criacao",
@@ -514,6 +523,7 @@ export async function registerRoutes(
       }
 
       const data = await response.json();
+
       console.log("MILVUS Chamados API success:", {
         total: data?.meta?.paginate?.total,
         registros: data?.lista?.length
