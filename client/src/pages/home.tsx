@@ -1800,7 +1800,8 @@ export default function Home() {
                     className="cursor-pointer hover:bg-green-500/10 transition-colors"
                     onClick={() => {
                       updateFilters({ analista: op.nome });
-                      setLocation('/operacional');
+                      // Passar status na URL para filtrar na página de destino
+                      setLocation(`/operacional?status=Atendendo,Pausado`);
                     }}
                   >
                     <TableCell className="font-medium">{op.nome}</TableCell>
