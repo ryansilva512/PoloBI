@@ -577,15 +577,16 @@ export default function Home() {
           console.log('🔊 Chamando speakNewTicket...');
           if (novosChamados.length === 1) {
             const primeiro = novosChamados[0];
-            speakNewTicket(`Atenção! Foi aberto um chamado com o Assunto ${primeiro.assunto}!`);
+            const cliente = primeiro.nome_fantasia || 'cliente desconhecido';
+            speakNewTicket(`Atenção! Novo chamado do cliente ${cliente}: ${primeiro.assunto}`);
           } else {
-            speakNewTicket(`Atenção! Foram abertos ${novosChamados.length} chamados!`);
+            speakNewTicket(`Atenção! Foram abertos ${novosChamados.length} novos chamados!`);
           }
         }, 300);
       }
 
       // 5. Detectar tickets FINALIZADOS (existente)
-      const finalizados: Array<{ codigo: number; assunto: string }> = [];
+      const finalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
       const newStatusMap = new Map<number, string>();
 
       newTickets.forEach((ticket) => {
@@ -596,7 +597,12 @@ export default function Home() {
         // Verificar se o ticket estava com outro status antes e agora está "Finalizado"
         const previousStatus = previousTicketStatusesRef.current.get(codigo);
         if (previousStatus && previousStatus !== 'Finalizado' && statusText === 'Finalizado') {
-          finalizados.push({ codigo, assunto: ticket.assunto });
+          finalizados.push({
+            codigo,
+            assunto: ticket.assunto,
+            nome: ticket.nome,
+            nome_fantasia: ticket.nome_fantasia
+          });
         }
       });
 
@@ -676,7 +682,9 @@ export default function Home() {
         // Falar o primeiro finalizado (com delay se tiver novos chamados)
         setTimeout(() => {
           const primeiro = finalizados[0];
-          speakFinalization(`Atenção! O chamado ${primeiro.assunto} foi finalizado!`);
+          const operador = primeiro.nome || 'Operador';
+          const cliente = primeiro.nome_fantasia || 'cliente';
+          speakFinalization(`Atenção! ${operador} finalizou o chamado do cliente ${cliente}`);
         }, novosChamados.length > 0 ? 5000 : 500);
       } else if (novosChamados.length === 0) {
         // Se não houve finalizações nem novos, mostrar atualização silenciosa
