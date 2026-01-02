@@ -512,12 +512,22 @@ export default function Home() {
         const voices = window.speechSynthesis.getVoices();
         console.log('🔊 Vozes disponíveis:', voices.length);
 
-        const ptVoice = voices.find(voice => voice.lang.includes('pt'));
-        if (ptVoice) {
-          console.log('🔊 Voz pt-BR encontrada:', ptVoice.name);
-          utterance.voice = ptVoice;
+        // Priorizar voz "Maria" (Microsoft) ou "Google"
+        let targetVoice = voices.find(v => v.name.includes('Maria') && v.lang.includes('pt'));
+
+        if (!targetVoice) {
+          targetVoice = voices.find(v => v.name.includes('Google') && v.lang.includes('pt'));
+        }
+
+        if (!targetVoice) {
+          targetVoice = voices.find(voice => voice.lang.includes('pt'));
+        }
+
+        if (targetVoice) {
+          console.log('🔊 Usando voz:', targetVoice.name);
+          utterance.voice = targetVoice;
         } else {
-          console.log('🔊 Usando voz padrão (pt-BR não encontrada)');
+          console.log('🔊 Usando voz padrão (nenhuma correspondência encontrada)');
         }
 
         utterance.onstart = () => console.log('🔊 Iniciando fala...');
@@ -1231,10 +1241,33 @@ export default function Home() {
 
   if (!aggregatedData || !slaData) {
     return (
-      <PageHeader
-        titulo="Visão Geral"
-        subtitulo="Nenhum dado disponível para o período selecionado"
-      />
+      <div className="space-y-6">
+        <PageHeader
+          titulo="Visão Geral"
+          subtitulo="Nenhum dado disponível para o período selecionado"
+        />
+        {/* Filtro de datas para permitir ajuste mesmo sem dados */}
+        <Card className="border-dashed">
+          <CardContent className="py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4 sm:flex-wrap">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase text-muted-foreground">Período</span>
+                <DateRangePicker
+                  dateRange={dateRange}
+                  onDateRangeChange={handleDateRangeChange}
+                />
+              </div>
+              <Button onClick={handleManualRefresh} variant="outline" size="sm" disabled={isRefreshing}>
+                {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                Atualizar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        <p className="text-sm text-muted-foreground text-center py-8">
+          Selecione um período de datas acima para carregar os dados do dashboard.
+        </p>
+      </div>
     );
   }
 
