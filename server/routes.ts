@@ -543,12 +543,18 @@ export async function registerRoutes(
     console.log("Status recebido:", status, "→ enviado:", statusFinal);
     console.log("Pagina:", pagina);
 
+    const filtro_body: any = {
+      status: statusFinal
+    };
+    // Apenas adicionar cliente_token se realmente houver um valor
+    // Enviar string vazia pode causar erro 502 na API Milvus
+    if (req.body.cliente_token) {
+      filtro_body.cliente_token = req.body.cliente_token;
+    }
+
     // Construir body conforme documentação Milvus
     const milvusBody = {
-      filtro_body: {
-        cliente_token: "",
-        status: statusFinal
-      },
+      filtro_body,
       is_descending: true,
       order_by: "data_criacao",
       total_registros: total_registros,
