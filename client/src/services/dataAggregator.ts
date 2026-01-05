@@ -151,8 +151,10 @@ const calculateOperatorMetrics = (
       }
     }
 
-    // Tempo de Atendimento = total_horas_atendimento (já vem da API)
-    const tempoAtendimento = horaStringToMinutos(ticket.total_horas_atendimento);
+    // Tempo de Atendimento = horas_internas (tempo DENTRO do expediente) - igual ao Power BI
+    // CORREÇÃO: Usar horas_internas ao invés de total_horas_atendimento
+    const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
+    const tempoAtendimento = horaStringToMinutos(horaStr);
     if (tempoAtendimento > 0) {
       data.temposAtendimento.push(tempoAtendimento);
     }

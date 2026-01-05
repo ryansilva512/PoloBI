@@ -462,6 +462,13 @@ export default function Home() {
     operador: string;
     status: string;
     ticket_excluido: string;
+    // Campos de SLA nativos do Milvus (já calculados considerando expediente)
+    status_sla_resposta: string;
+    status_sla_solucao: string;
+    data_expiracao_sla_resposta: string;
+    hora_expiracao_sla_resposta: string;
+    data_expiracao_sla_solucao: string;
+    hora_expiracao_sla_solucao: string;
   }
 
   const [ticketsDetalhados, setTicketsDetalhados] = useState<TicketDetalhado[]>([]);
@@ -548,9 +555,11 @@ export default function Home() {
         }
       }
 
-      // Tempo de Solução = tempo_total_atendimento (tempo real de trabalho no chamado)
-      if (t.tempo_total_atendimento && t.tempo_total_atendimento !== 'Não possui') {
-        const minutos = horaStringToMinutos(t.tempo_total_atendimento);
+      // Tempo de Solução = tempo_atendimento_interno (tempo DENTRO do expediente)
+      // CORREÇÃO: Usar tempo_atendimento_interno que é o campo correto do Power BI
+      const campoTempoSolucao = t.tempo_atendimento_interno || t.tempo_total_atendimento;
+      if (campoTempoSolucao && campoTempoSolucao !== 'Não possui') {
+        const minutos = horaStringToMinutos(campoTempoSolucao);
         if (minutos > 0) {
           temposSolucao.push(minutos);
         }
@@ -572,6 +581,85 @@ export default function Home() {
       totalSolucao: temposSolucao.length,
     };
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+
+  // ========== MÉTRICAS SLA NATIVAS DO MILVUS (mais precisas) ==========
+  // Usa os campos status_sla_resposta e status_sla_solucao que já vêm calculados
+  // pelo Milvus considerando expediente, pausas e configurações do sistema
+  const metricasSLAMilvus = useMemo(() => {
+    if (!ticketsDetalhados.length) {
+      return {
+        respostaEmDia: 0,
+        respostaEstourada: 0,
+        solucaoEmDia: 0,
+        solucaoEstourada: 0,
+        totalComSLAResposta: 0,
+        totalComSLASolucao: 0,
+      };
+    }
+
+    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
+    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+
+    let respostaEmDia = 0;
+    let respostaEstourada = 0;
+    let solucaoEmDia = 0;
+    let solucaoEstourada = 0;
+    let totalComSLAResposta = 0;
+    let totalComSLASolucao = 0;
+
+    ticketsDetalhados.forEach((t) => {
+      if (t.ticket_excluido === 'Sim') return;
+
+      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
+      if (!dataCriacao) return;
+
+      // Aplicar filtro de data
+      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
+      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
+
+      // Analisar SLA de Resposta (campo nativo do Milvus)
+      if (t.status_sla_resposta && t.status_sla_resposta !== 'Não possui') {
+        totalComSLAResposta++;
+        const statusLower = t.status_sla_resposta.toLowerCase();
+        // Valores possíveis: "Dentro do prazo", "Em dia", "Fora do prazo", "Expirado", "Estourado"
+        if (statusLower.includes('dentro') || statusLower.includes('em dia') || statusLower === 'ok') {
+          respostaEmDia++;
+        } else if (statusLower.includes('fora') || statusLower.includes('expir') || statusLower.includes('estourado')) {
+          respostaEstourada++;
+        }
+      }
+
+      // Analisar SLA de Solução (campo nativo do Milvus)
+      if (t.status_sla_solucao && t.status_sla_solucao !== 'Não possui') {
+        totalComSLASolucao++;
+        const statusLower = t.status_sla_solucao.toLowerCase();
+        if (statusLower.includes('dentro') || statusLower.includes('em dia') || statusLower === 'ok') {
+          solucaoEmDia++;
+        } else if (statusLower.includes('fora') || statusLower.includes('expir') || statusLower.includes('estourado')) {
+          solucaoEstourada++;
+        }
+      }
+    });
+
+    console.log('📊 Métricas SLA Milvus:', {
+      respostaEmDia,
+      respostaEstourada,
+      solucaoEmDia,
+      solucaoEstourada,
+      totalComSLAResposta,
+      totalComSLASolucao,
+    });
+
+    return {
+      respostaEmDia,
+      respostaEstourada,
+      solucaoEmDia,
+      solucaoEstourada,
+      totalComSLAResposta,
+      totalComSLASolucao,
+    };
+  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+  // ========== FIM MÉTRICAS SLA MILVUS ==========
 
   // Calcular tempo de resposta por operador usando dados do relatório CSV
   const tempoRespostaPorOperadorCSV = useMemo(() => {
@@ -617,6 +705,8 @@ export default function Home() {
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
 
   // Calcular tempo de atendimento por operador usando dados do relatório CSV
+  // CORREÇÃO: Usar tempo_atendimento_interno (tempo dentro do expediente)
+  // NÃO usar tempo_total_atendimento pois inclui tempo fora do expediente
   const tempoAtendimentoPorOperadorCSV = useMemo(() => {
     if (!ticketsDetalhados.length) return [];
 
@@ -635,9 +725,11 @@ export default function Home() {
       if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
 
-      // Usar tempo_total_atendimento (tempo real de trabalho)
-      if (t.tempo_total_atendimento && t.tempo_total_atendimento !== 'Não possui') {
-        const minutos = horaStringToMinutos(t.tempo_total_atendimento);
+      // CORREÇÃO: Usar tempo_atendimento_interno (tempo DENTRO do expediente)
+      // Este é o campo que o Power BI usa para cálculo correto
+      const campoTempo = t.tempo_atendimento_interno || t.tempo_total_atendimento;
+      if (campoTempo && campoTempo !== 'Não possui') {
+        const minutos = horaStringToMinutos(campoTempo);
         if (minutos > 0) {
           if (!map.has(t.operador)) {
             map.set(t.operador, { totalMinutos: 0, count: 0 });
@@ -1115,18 +1207,17 @@ export default function Home() {
       .filter((v): v is number => v !== null);
   }, [ticketsFiltrados]);
 
+  // CORREÇÃO FINAL: Usar horas_internas (tempo DENTRO do expediente) - igual ao Power BI
+  // NÃO usar total_horas_atendimento pois inclui tempo fora do expediente
   const diffsAtendimentoMin = useMemo(() => {
     return ticketsFiltrados
       .map((ticket) => {
-        const inicio = parseDateSafely(ticket.data_inicial);
-        const fim =
-          parseDateSafely(ticket.data_final) ||
-          parseDateSafely((ticket as any).data_solucao) ||
-          parseDateSafely(ticket.data_final);
-        if (!inicio || !fim) return null;
-        const diffMs = fim.getTime() - inicio.getTime();
-        if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-        return diffMs / (1000 * 60);
+        // CORREÇÃO: Usar horas_internas que é o tempo dentro do expediente
+        // Este é o campo correto que o Power BI usa
+        const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
+        const tempoAtendimento = horaStringToMinutos(horaStr);
+        if (tempoAtendimento <= 0) return null;
+        return tempoAtendimento;
       })
       .filter((v): v is number => v !== null);
   }, [ticketsFiltrados]);
@@ -1247,6 +1338,7 @@ export default function Home() {
 
   const mediaEstimadaNotas = Number(((conformidadePercentual / 100) * 5).toFixed(1));
 
+  // CORREÇÃO FINAL: Usar horas_internas (tempo DENTRO do expediente) - igual ao Power BI
   const operadoresPorAtendimento = useMemo(() => {
     if (!ticketsFiltrados.length) return [];
     const capMinutos = 480; // cap 8h
@@ -1259,14 +1351,12 @@ export default function Home() {
     >();
 
     ticketsFiltrados.forEach((ticket) => {
-      const inicio = parseDateSafely(ticket.data_inicial);
-      const fim =
-        parseDateSafely(ticket.data_final) ||
-        parseDateSafely((ticket as any).data_solucao);
-      if (!inicio || !fim) return;
-      const diffMs = fim.getTime() - inicio.getTime();
-      if (!Number.isFinite(diffMs) || diffMs < 0) return;
-      const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
+      // CORREÇÃO: Usar horas_internas que é o tempo dentro do expediente
+      const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
+      const tempoAtendimento = horaStringToMinutos(horaStr);
+      if (tempoAtendimento <= 0) return;
+      
+      const minutos = Math.min(tempoAtendimento, capMinutos);
       const nome = ticket.nome;
 
       if (!map.has(nome)) {
@@ -1750,6 +1840,49 @@ export default function Home() {
         ))
         }
       </div>
+
+      {/* Card de Diagnóstico - Comparação entre cálculos manuais e SLA Milvus */}
+      {metricasSLAMilvus.totalComSLAResposta > 0 && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Diagnóstico SLA - Comparação de Métricas
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-semibold">SLA RESPOSTA (Milvus)</p>
+                <p className="text-emerald-500 font-mono">✓ Em dia: {metricasSLAMilvus.respostaEmDia}</p>
+                <p className="text-red-500 font-mono">✗ Estourado: {metricasSLAMilvus.respostaEstourada}</p>
+                <p className="text-xs text-muted-foreground">Total: {metricasSLAMilvus.totalComSLAResposta}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-semibold">RESPOSTA (Cálculo Manual)</p>
+                <p className="text-emerald-500 font-mono">✓ Em dia: {tempoMetrics.respostaEmDia}</p>
+                <p className="text-red-500 font-mono">✗ Estourado: {tempoMetrics.respostaEstourada}</p>
+                <p className="text-xs text-muted-foreground">Total: {tempoMetrics.totalRespMedida}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-semibold">SLA SOLUÇÃO (Milvus)</p>
+                <p className="text-emerald-500 font-mono">✓ Em dia: {metricasSLAMilvus.solucaoEmDia}</p>
+                <p className="text-red-500 font-mono">✗ Estourado: {metricasSLAMilvus.solucaoEstourada}</p>
+                <p className="text-xs text-muted-foreground">Total: {metricasSLAMilvus.totalComSLASolucao}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-semibold">ATENDIMENTO (Cálculo Manual)</p>
+                <p className="text-emerald-500 font-mono">✓ Em dia: {tempoMetrics.atendimentoEmDia}</p>
+                <p className="text-red-500 font-mono">✗ Estourado: {tempoMetrics.atendimentoExpirado}</p>
+                <p className="text-xs text-muted-foreground">Total: {tempoMetrics.totalAtendMedida}</p>
+              </div>
+            </div>
+            <p className="text-xs text-amber-600 mt-3 italic">
+              ⚠️ Se houver grande diferença, os dados do Milvus são mais precisos pois consideram expediente e pausas SLA.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Gráficos de tempo médio + top operadores */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">

@@ -183,16 +183,28 @@ export default function RegistrosExpirados() {
     }, [ticketsFiltrados]);
 
     // Atendimentos Expirados (tempo de atendimento > 4 horas)
-    // Tempo de atendimento = data_final - data_inicial
+    // CORREÇÃO FINAL: Usar horas_internas (tempo DENTRO do expediente) - igual ao Power BI
     const atendimentosExpirados = useMemo(() => {
         return ticketsFiltrados
             .map((ticket) => {
-                const inicio = parseDateSafely(ticket.data_inicial);
-                const fim = parseDateSafely(ticket.data_final) || parseDateSafely(ticket.data_solucao);
-                if (!inicio || !fim) return null;
-                const diffMs = fim.getTime() - inicio.getTime();
-                if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-                const diffMinutos = diffMs / (1000 * 60);
+                // CORREÇÃO: Usar horas_internas que é o tempo dentro do expediente
+                // Este é o campo correto que o Power BI usa
+                // Fallback para total_horas_atendimento se horas_internas não existir
+                const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
+                if (!horaStr) return null;
+                
+                // Converter HH:MM:SS ou HH:MM para minutos
+                const parts = horaStr.split(":").map(Number);
+                let diffMinutos = 0;
+                if (parts.length >= 2) {
+                    diffMinutos = parts[0] * 60 + parts[1];
+                    if (parts.length === 3) {
+                        diffMinutos += parts[2] / 60;
+                    }
+                }
+                
+                if (diffMinutos <= 0) return null;
+                
                 const metaMinutos = META_ATENDIMENTO_HORAS * 60;
                 if (diffMinutos <= metaMinutos) return null; // Dentro do prazo
                 return {
