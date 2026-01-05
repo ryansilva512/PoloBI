@@ -759,6 +759,8 @@ export async function registerRoutes(
           hora_solucao: row['HORA DA SOLUÇÃO'] || '',
           tipo_ticket: row['TIPO DO TICKET'] || '',
           tempo_total_atendimento: row['TEMPO TOTAL DE ATENDIMENTO'] || '',
+          tempo_gasto_sla_resposta: row['TEMPO GASTO SLA RESPOSTA'] || '',  // Tempo real SLA resposta
+          tempo_gasto_sla_solucao: row['TEMPO GASTO SLA SOLUÇÃO'] || '',    // Tempo real SLA solução
           status_sla_resposta: row['STATUS SLA RESPOSTA'] || '',
           status_sla_solucao: row['STATUS SLA SOLUÇÃO'] || '',
           hora_modificacao: row['HORA DE MODIFICAÇÃO DO TICKET'] || '',

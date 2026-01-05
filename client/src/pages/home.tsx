@@ -455,14 +455,15 @@ export default function Home() {
     data_primeiro_atendimento: string;
     hora_primeiro_atendimento: string;
     tempo_total_atendimento: string;
-    tempo_atendimento_interno: string;  // Tempo dentro do expediente (desconta pausas SLA)
-    tempo_atendimento_externo: string;  // Tempo fora do expediente
+    tempo_atendimento_interno: string;
+    tempo_atendimento_externo: string;
+    tempo_gasto_sla_resposta: string;  // Tempo real SLA resposta (desconta pausas)
+    tempo_gasto_sla_solucao: string;   // Tempo real SLA solução (desconta pausas)
     data_solucao: string;
     hora_solucao: string;
     operador: string;
     status: string;
     ticket_excluido: string;
-    // Campos de SLA nativos do Milvus (já calculados considerando expediente)
     status_sla_resposta: string;
     status_sla_solucao: string;
     data_expiracao_sla_resposta: string;
@@ -545,22 +546,18 @@ export default function Home() {
       if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
 
-      // Tempo de Resposta = (data+hora primeiro atendimento) - (data+hora criação)
-      const dataPrimeiroAtend = parseDataHoraCSV(t.data_primeiro_atendimento, t.hora_primeiro_atendimento);
-      if (dataCriacao && dataPrimeiroAtend) {
-        const diffMs = dataPrimeiroAtend.getTime() - dataCriacao.getTime();
-        if (diffMs >= 0) {
-          const minutos = diffMs / (1000 * 60);
+      // Tempo de Resposta = tempo_gasto_sla_resposta (já desconta pausas SLA e finais de semana)
+      if (t.tempo_gasto_sla_resposta && t.tempo_gasto_sla_resposta !== 'Não possui') {
+        const minutos = horaStringToMinutos(t.tempo_gasto_sla_resposta);
+        if (minutos >= 0) {
           temposResposta.push(minutos);
         }
       }
 
-      // Tempo de Solução = tempo_atendimento_interno (tempo DENTRO do expediente)
-      // CORREÇÃO: Usar tempo_atendimento_interno que é o campo correto do Power BI
-      const campoTempoSolucao = t.tempo_atendimento_interno || t.tempo_total_atendimento;
-      if (campoTempoSolucao && campoTempoSolucao !== 'Não possui') {
-        const minutos = horaStringToMinutos(campoTempoSolucao);
-        if (minutos > 0) {
+      // Tempo de Solução = tempo_gasto_sla_solucao (já desconta pausas SLA e finais de semana)
+      if (t.tempo_gasto_sla_solucao && t.tempo_gasto_sla_solucao !== 'Não possui') {
+        const minutos = horaStringToMinutos(t.tempo_gasto_sla_solucao);
+        if (minutos >= 0) {
           temposSolucao.push(minutos);
         }
       }
@@ -680,20 +677,18 @@ export default function Home() {
       if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
 
-      const dataPrimeiroAtend = parseDataHoraCSV(t.data_primeiro_atendimento, t.hora_primeiro_atendimento);
-      if (!dataPrimeiroAtend) return;
-
-      const diffMs = dataPrimeiroAtend.getTime() - dataCriacao.getTime();
-      if (diffMs < 0) return;
-
-      const minutos = diffMs / (1000 * 60);
-
-      if (!map.has(t.operador)) {
-        map.set(t.operador, { totalMinutos: 0, count: 0 });
+      // Usar tempo_gasto_sla_resposta (já desconta pausas SLA e finais de semana)
+      if (t.tempo_gasto_sla_resposta && t.tempo_gasto_sla_resposta !== 'Não possui') {
+        const minutos = horaStringToMinutos(t.tempo_gasto_sla_resposta);
+        if (minutos >= 0) {
+          if (!map.has(t.operador)) {
+            map.set(t.operador, { totalMinutos: 0, count: 0 });
+          }
+          const data = map.get(t.operador)!;
+          data.totalMinutos += minutos;
+          data.count += 1;
+        }
       }
-      const data = map.get(t.operador)!;
-      data.totalMinutos += minutos;
-      data.count += 1;
     });
 
     return Array.from(map.entries())
@@ -725,12 +720,10 @@ export default function Home() {
       if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
 
-      // CORREÇÃO: Usar tempo_atendimento_interno (tempo DENTRO do expediente)
-      // Este é o campo que o Power BI usa para cálculo correto
-      const campoTempo = t.tempo_atendimento_interno || t.tempo_total_atendimento;
-      if (campoTempo && campoTempo !== 'Não possui') {
-        const minutos = horaStringToMinutos(campoTempo);
-        if (minutos > 0) {
+      // Usar tempo_gasto_sla_solucao (já desconta pausas SLA e finais de semana)
+      if (t.tempo_gasto_sla_solucao && t.tempo_gasto_sla_solucao !== 'Não possui') {
+        const minutos = horaStringToMinutos(t.tempo_gasto_sla_solucao);
+        if (minutos >= 0) {
           if (!map.has(t.operador)) {
             map.set(t.operador, { totalMinutos: 0, count: 0 });
           }
@@ -1355,7 +1348,7 @@ export default function Home() {
       const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
       const tempoAtendimento = horaStringToMinutos(horaStr);
       if (tempoAtendimento <= 0) return;
-      
+
       const minutos = Math.min(tempoAtendimento, capMinutos);
       const nome = ticket.nome;
 
