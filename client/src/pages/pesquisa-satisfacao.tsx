@@ -23,6 +23,12 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import {
@@ -520,10 +526,23 @@ export default function PesquisaSatisfacao() {
                                             <TableCell className="font-mono font-bold">{p.ticket}</TableCell>
                                             <TableCell className="truncate max-w-[120px]">{p.contato || "-"}</TableCell>
                                             <TableCell className="truncate max-w-[150px]">{p.razao_social || "-"}</TableCell>
-                                            <TableCell className="truncate max-w-[200px] text-xs">
-                                                {p.descricao_avaliacao && p.descricao_avaliacao !== 'Não possui'
-                                                    ? p.descricao_avaliacao
-                                                    : <span className="text-muted-foreground">Sem resposta</span>}
+                                            <TableCell className="max-w-[200px] text-xs">
+                                                {p.descricao_avaliacao && p.descricao_avaliacao !== 'Não possui' ? (
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <span className="truncate block cursor-help">
+                                                                    {p.descricao_avaliacao}
+                                                                </span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="top" className="max-w-[400px] whitespace-pre-wrap">
+                                                                <p>{p.descricao_avaliacao}</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                ) : (
+                                                    <span className="text-muted-foreground">Sem resposta</span>
+                                                )}
                                             </TableCell>
                                             <TableCell className="truncate max-w-[100px]">{p.operador || "-"}</TableCell>
                                             <TableCell className="text-center">
