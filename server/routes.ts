@@ -681,5 +681,116 @@ export async function registerRoutes(
   });
   // ========== END PESQUISA DE SATISFAÇÃO ==========
 
+  // ========== RELATÓRIO DE TICKETS DETALHADO (para cálculos de tempo) ==========
+  app.post("/api/proxy/relatorio-tickets", async (req, res) => {
+    try {
+      const API_KEY = process.env.MILVUS_API_KEY;
+      if (!API_KEY) {
+        return res.status(500).json({
+          success: false,
+          message: "MILVUS_API_KEY not configured"
+        });
+      }
+
+      console.log("=== RELATÓRIO TICKETS Proxy Request ===");
+
+      const response = await fetch(
+        "https://apiintegracao.milvus.com.br/api/relatorio-personalizado/exportar",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            nome: "Ticket",
+            tipo: "csv"
+          })
+        }
+      );
+
+      if (!response.ok) {
+        console.error("MILVUS Relatório Tickets API error:", response.status);
+        return res.status(response.status).json({
+          success: false,
+          message: `API Milvus error: ${response.status}`
+        });
+      }
+
+      const csvText = await response.text();
+
+      // Parse CSV
+      const lines = csvText.split('\n').filter(line => line.trim());
+      if (lines.length === 0) {
+        return res.json({ lista: [] });
+      }
+
+      // Parse header - campos separados por ;
+      const header = lines[0].split(';').map(h => h.replace(/"/g, '').trim());
+      console.log("CSV Header COMPLETO:", header);
+      console.log("CSV Total linhas:", lines.length);
+
+      // Log primeiro registro para investigar estrutura
+      if (lines.length > 1) {
+        const firstValues = lines[1].split(';').map(v => v.replace(/"/g, '').trim());
+        const firstRow: Record<string, string> = {};
+        header.forEach((h, i) => {
+          firstRow[h] = firstValues[i] || '';
+        });
+        console.log("Primeiro registro completo:", firstRow);
+      }
+
+      // Parse data rows
+      const data = lines.slice(1).map(line => {
+        const values = line.split(';').map(v => v.replace(/"/g, '').trim());
+        const row: Record<string, string> = {};
+        header.forEach((h, i) => {
+          row[h] = values[i] || '';
+        });
+
+        return {
+          ticket: row['TICKET'] || '',
+          contato: row['CONTATO DO TICKET'] || '',
+          data_criacao: row['DATA DE CRIAÇÃO DO TICKET'] || '',
+          hora_criacao: row['HORA DE CRIAÇÃO DO TICKET'] || '',
+          status: row['STATUS DO TICKET'] || '',
+          origem: row['ORIGEM DO TICKET'] || '',
+          data_solucao: row['DATA DA SOLUÇÃO'] || '',
+          hora_solucao: row['HORA DA SOLUÇÃO'] || '',
+          tipo_ticket: row['TIPO DO TICKET'] || '',
+          tempo_total_atendimento: row['TEMPO TOTAL DE ATENDIMENTO'] || '',
+          status_sla_resposta: row['STATUS SLA RESPOSTA'] || '',
+          status_sla_solucao: row['STATUS SLA SOLUÇÃO'] || '',
+          hora_modificacao: row['HORA DE MODIFICAÇÃO DO TICKET'] || '',
+          data_primeiro_atendimento: row['DATA DO PRIMEIRO ATENDIMENTO'] || '',
+          hora_primeiro_atendimento: row['HORA DO PRIMEIRO ATENDIMENTO'] || '',
+          data_expiracao_sla_resposta: row['DATA DE EXPIRAÇÃO SLA RESPOSTA'] || '',
+          hora_expiracao_sla_resposta: row['HORA DE EXPIRAÇÃO SLA RESPOSTA'] || '',
+          data_expiracao_sla_solucao: row['DATA DE EXPIRAÇÃO SLA SOLUÇÃO'] || '',
+          hora_expiracao_sla_solucao: row['HORA DE EXPIRAÇÃO SLA SOLUÇÃO'] || '',
+          tempo_atendimento_interno: row['TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE'] || '',
+          tempo_atendimento_externo: row['TEMPO DE ATENDIMENTO EXTERNO DENTRO DO EXPEDIENTE'] || '',
+          total_sla_resposta: row['TOTAL SLA RESPOSTA PROGRAMADO'] || '',
+          total_sla_solucao: row['TOTAL SLA SOLUÇÃO PROGRAMADO'] || '',
+          nome_fantasia: row['NOME FANTASIA DO CLIENTE'] || '',
+          operador: row['NOME DO OPERADOR'] || '',
+          ticket_excluido: row['TICKET EXCLUÍDO'] || 'Não'
+        };
+      });
+
+      console.log("Relatório Tickets parsed:", data.length, "registros");
+
+      res.json({ lista: data });
+    } catch (error: any) {
+      console.error("Erro ao buscar relatório tickets:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro ao buscar relatório tickets",
+        error: error.message
+      });
+    }
+  });
+  // ========== END RELATÓRIO DE TICKETS ==========
+
   return httpServer;
 }

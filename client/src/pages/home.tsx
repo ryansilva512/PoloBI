@@ -447,6 +447,217 @@ export default function Home() {
     fetchPesquisas();
   }, [filters.data_inicial, filters.data_final]);
 
+  // ========== RELATÓRIO DE TICKETS DETALHADO (para cálculos de tempo precisos) ==========
+  interface TicketDetalhado {
+    ticket: string;
+    data_criacao: string;
+    hora_criacao: string;
+    data_primeiro_atendimento: string;
+    hora_primeiro_atendimento: string;
+    tempo_total_atendimento: string;
+    tempo_atendimento_interno: string;  // Tempo dentro do expediente (desconta pausas SLA)
+    tempo_atendimento_externo: string;  // Tempo fora do expediente
+    data_solucao: string;
+    hora_solucao: string;
+    operador: string;
+    status: string;
+    ticket_excluido: string;
+  }
+
+  const [ticketsDetalhados, setTicketsDetalhados] = useState<TicketDetalhado[]>([]);
+  const [isLoadingTicketsDetalhados, setIsLoadingTicketsDetalhados] = useState(false);
+
+  // Função para buscar relatório de tickets detalhado
+  const fetchRelatorioTickets = async () => {
+    try {
+      setIsLoadingTicketsDetalhados(true);
+      const response = await fetch('/api/proxy/relatorio-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      setTicketsDetalhados(data?.lista || []);
+    } catch (e) {
+      console.error('Erro ao buscar relatório de tickets:', e);
+    } finally {
+      setIsLoadingTicketsDetalhados(false);
+    }
+  };
+
+  // Buscar relatório de tickets ao montar
+  useEffect(() => {
+    fetchRelatorioTickets();
+  }, []);
+
+  // Função para parsear data+hora do CSV (formato dd/MM/yyyy e HH:mm:ss)
+  const parseDataHoraCSV = (data: string, hora: string): Date | null => {
+    if (!data || !hora || data === 'Não possui' || hora === 'Não possui') return null;
+    try {
+      // Data no formato dd/MM/yyyy
+      const [day, month, year] = data.split('/').map(Number);
+      // Hora no formato HH:mm:ss
+      const [h, m, s] = hora.split(':').map(Number);
+      if (isNaN(day) || isNaN(month) || isNaN(year) || isNaN(h) || isNaN(m)) return null;
+      const date = new Date(year, month - 1, day, h, m, s || 0);
+      return isValid(date) ? date : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Calcular tempos médios usando dados do relatório detalhado
+  const temposDoRelatorio = useMemo(() => {
+    console.log('📊 temposDoRelatorio - ticketsDetalhados:', ticketsDetalhados.length);
+
+    if (!ticketsDetalhados.length) {
+      return { tempoMedioAbertura: 0, tempoMedioSolucao: 0, totalResposta: 0, totalSolucao: 0 };
+    }
+
+    // Debug: mostrar primeiro ticket
+    if (ticketsDetalhados.length > 0) {
+      console.log('📊 Primeiro ticket:', ticketsDetalhados[0]);
+    }
+
+    // Preparar datas do filtro
+    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
+    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+
+    const temposResposta: number[] = [];
+    const temposSolucao: number[] = [];
+
+    ticketsDetalhados.forEach((t) => {
+      // Ignorar tickets excluídos
+      if (t.ticket_excluido === 'Sim') return;
+
+      // Parsear data de criação para filtrar
+      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
+      if (!dataCriacao) return;
+
+      // Aplicar filtro de data
+      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
+      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
+
+      // Tempo de Resposta = (data+hora primeiro atendimento) - (data+hora criação)
+      const dataPrimeiroAtend = parseDataHoraCSV(t.data_primeiro_atendimento, t.hora_primeiro_atendimento);
+      if (dataCriacao && dataPrimeiroAtend) {
+        const diffMs = dataPrimeiroAtend.getTime() - dataCriacao.getTime();
+        if (diffMs >= 0) {
+          const minutos = diffMs / (1000 * 60);
+          temposResposta.push(minutos);
+        }
+      }
+
+      // Tempo de Solução = tempo_total_atendimento (tempo real de trabalho no chamado)
+      if (t.tempo_total_atendimento && t.tempo_total_atendimento !== 'Não possui') {
+        const minutos = horaStringToMinutos(t.tempo_total_atendimento);
+        if (minutos > 0) {
+          temposSolucao.push(minutos);
+        }
+      }
+    });
+
+    const mediaResposta = temposResposta.length > 0
+      ? temposResposta.reduce((a, b) => a + b, 0) / temposResposta.length
+      : 0;
+
+    const mediaSolucao = temposSolucao.length > 0
+      ? temposSolucao.reduce((a, b) => a + b, 0) / temposSolucao.length
+      : 0;
+
+    return {
+      tempoMedioAbertura: mediaResposta,
+      tempoMedioSolucao: mediaSolucao,
+      totalResposta: temposResposta.length,
+      totalSolucao: temposSolucao.length,
+    };
+  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+
+  // Calcular tempo de resposta por operador usando dados do relatório CSV
+  const tempoRespostaPorOperadorCSV = useMemo(() => {
+    if (!ticketsDetalhados.length) return [];
+
+    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
+    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+
+    const map = new Map<string, { totalMinutos: number; count: number }>();
+
+    ticketsDetalhados.forEach((t) => {
+      if (t.ticket_excluido === 'Sim') return;
+      if (!t.operador) return;
+
+      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
+      if (!dataCriacao) return;
+
+      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
+      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
+
+      const dataPrimeiroAtend = parseDataHoraCSV(t.data_primeiro_atendimento, t.hora_primeiro_atendimento);
+      if (!dataPrimeiroAtend) return;
+
+      const diffMs = dataPrimeiroAtend.getTime() - dataCriacao.getTime();
+      if (diffMs < 0) return;
+
+      const minutos = diffMs / (1000 * 60);
+
+      if (!map.has(t.operador)) {
+        map.set(t.operador, { totalMinutos: 0, count: 0 });
+      }
+      const data = map.get(t.operador)!;
+      data.totalMinutos += minutos;
+      data.count += 1;
+    });
+
+    return Array.from(map.entries())
+      .map(([nome, data]) => ({
+        nome,
+        tempoMedioMinutos: data.count ? data.totalMinutos / data.count : 0,
+      }))
+      .sort((a, b) => b.tempoMedioMinutos - a.tempoMedioMinutos);
+  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+
+  // Calcular tempo de atendimento por operador usando dados do relatório CSV
+  const tempoAtendimentoPorOperadorCSV = useMemo(() => {
+    if (!ticketsDetalhados.length) return [];
+
+    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
+    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+
+    const map = new Map<string, { totalMinutos: number; count: number }>();
+
+    ticketsDetalhados.forEach((t) => {
+      if (t.ticket_excluido === 'Sim') return;
+      if (!t.operador) return;
+
+      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
+      if (!dataCriacao) return;
+
+      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
+      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
+
+      // Usar tempo_total_atendimento (tempo real de trabalho)
+      if (t.tempo_total_atendimento && t.tempo_total_atendimento !== 'Não possui') {
+        const minutos = horaStringToMinutos(t.tempo_total_atendimento);
+        if (minutos > 0) {
+          if (!map.has(t.operador)) {
+            map.set(t.operador, { totalMinutos: 0, count: 0 });
+          }
+          const data = map.get(t.operador)!;
+          data.totalMinutos += minutos;
+          data.count += 1;
+        }
+      }
+    });
+
+    return Array.from(map.entries())
+      .map(([nome, data]) => ({
+        nome,
+        tempoMedioAtendimentoMinutos: data.count ? data.totalMinutos / data.count : 0,
+      }))
+      .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
+  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+  // ========== END RELATÓRIO DE TICKETS ==========
+
   // Buscar chamados ativos (Atendendo + Pausado) ao carregar a página
   useEffect(() => {
     const loadChamadosAtivos = async () => {
@@ -1420,7 +1631,7 @@ export default function Home() {
             </CardHeader>
             <CardContent className="py-2 px-3">
               <div className="text-2xl font-mono font-bold">
-                {formatMinutosCompleto(tempoMedioAbertura.minutos)}
+                {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
               </div>
               <p className="text-xs text-muted-foreground">Tempo médio de abertura</p>
             </CardContent>
@@ -1431,7 +1642,7 @@ export default function Home() {
             </CardHeader>
             <CardContent className="py-2 px-3">
               <div className="text-2xl font-mono font-bold">
-                {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
+                {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
               </div>
               <p className="text-xs text-muted-foreground">Tempo médio de solução</p>
             </CardContent>
@@ -1552,14 +1763,14 @@ export default function Home() {
           <CardContent className="space-y-3">
             <div className="text-sm text-muted-foreground">
               Meta: {formatMinutosCompleto(META_RESPOSTA_MINUTOS)} • Atual:{" "}
-              {formatMinutosCompleto(tempoMedioRespostaGlobal)}
+              {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
             </div>
             <div className="space-y-2">
-              {tempoRespostaPorOperador.length === 0 && (
+              {tempoRespostaPorOperadorCSV.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
-              {tempoRespostaPorOperador.slice(0, 8).map((op) => {
-                const maxValor = tempoRespostaPorOperador[0]?.tempoMedioMinutos || 1;
+              {tempoRespostaPorOperadorCSV.slice(0, 8).map((op) => {
+                const maxValor = tempoRespostaPorOperadorCSV[0]?.tempoMedioMinutos || 1;
                 const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
 
                 // Buscar dados do ranking para este operador
@@ -1650,15 +1861,15 @@ export default function Home() {
           <CardContent className="space-y-3">
             <div className="text-sm text-muted-foreground">
               Meta: {formatMinutosCompleto(META_ATENDIMENTO_HORAS * 60)} • Atual:{" "}
-              {formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento)}
+              {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
             </div>
             <div className="space-y-2">
-              {operadoresPorAtendimento.length === 0 && (
+              {tempoAtendimentoPorOperadorCSV.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
-              {operadoresPorAtendimento.slice(0, 8).map((op) => {
+              {tempoAtendimentoPorOperadorCSV.slice(0, 8).map((op) => {
                 const maxValor =
-                  operadoresPorAtendimento[0]?.tempoMedioAtendimentoMinutos || 1;
+                  tempoAtendimentoPorOperadorCSV[0]?.tempoMedioAtendimentoMinutos || 1;
                 const value = maxValor
                   ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100
                   : 0;
