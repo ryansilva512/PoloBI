@@ -532,10 +532,13 @@ export async function registerRoutes(
 
     // Mapear valores de status para os valores aceitos pela API Milvus
     // A API usa 'ChamadosAbertos' para listar chamados em atendimento
+    // e 'ChamadosFechados' para chamados finalizados
     const statusMap: Record<string, string> = {
       'EmAtendimento': 'ChamadosAbertos',
       'Atendendo': 'ChamadosAbertos',
       'ChamadosAbertos': 'ChamadosAbertos',
+      'Finalizado': 'ChamadosFechados',
+      'ChamadosFechados': 'ChamadosFechados',
     };
     const statusFinal = statusMap[status] || status;
 
