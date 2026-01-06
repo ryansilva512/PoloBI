@@ -995,15 +995,29 @@ export default function Home() {
       const lastFinished = await fetchLastFinishedTickets();
       const newFinalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
 
+      // Função auxiliar para extrair código de forma consistente
+      const getTicketCode = (t: any): number | null => {
+        const raw = t.codigo ?? t.id ?? t.ticket;
+        if (raw === undefined || raw === null) return null;
+        const num = typeof raw === 'string' ? parseInt(raw, 10) : raw;
+        return Number.isNaN(num) ? null : num;
+      };
+
+      console.log('📋 Finalizados recebidos:', lastFinished.length, 'IDs:', lastFinished.map((t: any) => getTicketCode(t)));
+      console.log('📋 IDs já notificados:', Array.from(notifiedFinishedTicketIdsRef.current));
+      console.log('📋 Inicializado?', finishedTicketsInitializedRef.current);
+
       if (finishedTicketsInitializedRef.current) {
         lastFinished.forEach((t: any) => {
-          const codigo = t.codigo || t.id;
+          const codigo = getTicketCode(t);
+          if (codigo === null) return;
+
           // Se este finalizado ainda não foi notificado
           if (!notifiedFinishedTicketIdsRef.current.has(codigo)) {
             console.log('✅ NOVO FINALIZADO DETECTADO:', codigo, t.assunto);
             newFinalizados.push({
               codigo,
-              assunto: t.assunto,
+              assunto: t.assunto || 'Chamado finalizado',
               nome: t.nome || t.tecnico || t.nome_tecnico || t.atendente || t.operador || 'Operador',
               nome_fantasia: t.nome_fantasia || t.cliente || 'Cliente'
             });
@@ -1015,10 +1029,13 @@ export default function Home() {
         // Primeira execução: apenas popular o set com os finalizados atuais para não notificar histórico
         console.log('📋 Inicializando lista de finalizados conhecidos...');
         lastFinished.forEach((t: any) => {
-          const codigo = t.codigo || t.id;
-          notifiedFinishedTicketIdsRef.current.add(codigo);
+          const codigo = getTicketCode(t);
+          if (codigo !== null) {
+            notifiedFinishedTicketIdsRef.current.add(codigo);
+          }
         });
         finishedTicketsInitializedRef.current = true;
+        console.log('📋 Inicializado com', notifiedFinishedTicketIdsRef.current.size, 'IDs');
       }
 
       // Limpeza opcional: manter o Set de finalizados num tamanho razoável (ex: últimos 100)
