@@ -346,10 +346,9 @@ export default function Home() {
 
   // Set para rastrear IDs de chamados abertos anteriores
   const previousOpenTicketIdsRef = useRef<Set<number>>(new Set());
-  // Set para rastrear IDs de chamados finalizados já notificados
-  const notifiedFinishedTicketIdsRef = useRef<Set<number>>(new Set());
+  // Ref para guardar informações completas dos chamados abertos anteriores (para notificação de finalização)
+  const previousOpenTicketsRef = useRef<any[]>([]);
   const openTicketsInitializedRef = useRef<boolean>(false);
-  const finishedTicketsInitializedRef = useRef<boolean>(false);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
@@ -991,58 +990,49 @@ export default function Home() {
         }, 300);
       }
 
-      // 5. Detectar tickets FINALIZADOS - Lógica corrigida com busca ativa
-      const lastFinished = await fetchLastFinishedTickets();
+      // 5. Detectar tickets FINALIZADOS - Nova lógica: detectar quando chamados SAEM da lista de abertos
+      // Isso é mais confiável que buscar uma API de finalizados que pode retornar dados inconsistentes
       const newFinalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
 
-      // Função auxiliar para extrair código de forma consistente
-      const getTicketCode = (t: any): number | null => {
-        const raw = t.codigo ?? t.id ?? t.ticket;
-        if (raw === undefined || raw === null) return null;
-        const num = typeof raw === 'string' ? parseInt(raw, 10) : raw;
-        return Number.isNaN(num) ? null : num;
-      };
+      if (openTicketsInitializedRef.current && previousOpenTicketIdsRef.current.size > 0) {
+        // Encontrar IDs que estavam abertos ANTES mas não estão AGORA
+        const previousIds = Array.from(previousOpenTicketIdsRef.current);
 
-      console.log('📋 Finalizados recebidos:', lastFinished.length, 'IDs:', lastFinished.map((t: any) => getTicketCode(t)));
-      console.log('📋 IDs já notificados:', Array.from(notifiedFinishedTicketIdsRef.current));
-      console.log('📋 Inicializado?', finishedTicketsInitializedRef.current);
+        previousIds.forEach(previousId => {
+          // Se o ID anterior não está mais na lista atual de abertos
+          if (!currentOpenIds.has(previousId)) {
+            console.log('✅ CHAMADO FINALIZADO (saiu da lista de abertos):', previousId);
 
-      if (finishedTicketsInitializedRef.current) {
-        lastFinished.forEach((t: any) => {
-          const codigo = getTicketCode(t);
-          if (codigo === null) return;
+            // Precisamos buscar as informações do ticket que foi fechado
+            // Vamos usar openTickets anterior para isso (guardamos uma ref)
+            const ticketInfo = previousOpenTicketsRef.current.find((t: any) =>
+              (t.codigo || t.id) === previousId
+            );
 
-          // Se este finalizado ainda não foi notificado
-          if (!notifiedFinishedTicketIdsRef.current.has(codigo)) {
-            console.log('✅ NOVO FINALIZADO DETECTADO:', codigo, t.assunto);
-            newFinalizados.push({
-              codigo,
-              assunto: t.assunto || 'Chamado finalizado',
-              nome: t.nome || t.tecnico || t.nome_tecnico || t.atendente || t.operador || 'Operador',
-              nome_fantasia: t.nome_fantasia || t.cliente || 'Cliente'
-            });
-            // Marca como notificado para não repetir
-            notifiedFinishedTicketIdsRef.current.add(codigo);
+            if (ticketInfo) {
+              newFinalizados.push({
+                codigo: previousId,
+                assunto: ticketInfo.assunto || 'Chamado finalizado',
+                nome: ticketInfo.tecnico || ticketInfo.nome || ticketInfo.operador || 'Operador',
+                nome_fantasia: ticketInfo.nome_fantasia || ticketInfo.cliente || 'Cliente'
+              });
+            } else {
+              // Se não temos info, ainda notificamos mas com dados genéricos
+              newFinalizados.push({
+                codigo: previousId,
+                assunto: 'Chamado finalizado',
+                nome: 'Operador',
+                nome_fantasia: 'Cliente'
+              });
+            }
           }
         });
-      } else {
-        // Primeira execução: apenas popular o set com os finalizados atuais para não notificar histórico
-        console.log('📋 Inicializando lista de finalizados conhecidos...');
-        lastFinished.forEach((t: any) => {
-          const codigo = getTicketCode(t);
-          if (codigo !== null) {
-            notifiedFinishedTicketIdsRef.current.add(codigo);
-          }
-        });
-        finishedTicketsInitializedRef.current = true;
-        console.log('📋 Inicializado com', notifiedFinishedTicketIdsRef.current.size, 'IDs');
       }
 
-      // Limpeza opcional: manter o Set de finalizados num tamanho razoável (ex: últimos 100)
-      if (notifiedFinishedTicketIdsRef.current.size > 100) {
-        // Reset simples ou lógica mais complexa se necessário. 
-        // Como é apenas ID number, o consumo de memória é irrisório.
-      }
+      // Guardar os chamados abertos atuais para referência futura
+      previousOpenTicketsRef.current = openTickets;
+
+      console.log('✅ Chamados finalizados detectados:', newFinalizados.length);
 
       // Notificar sobre tickets finalizados
       if (newFinalizados.length > 0) {
@@ -1110,7 +1100,7 @@ export default function Home() {
         // Se não houve finalizações nem novos, mostrar atualização silenciosa
         toast({
           title: "Dados atualizados",
-          description: `Dashboard atualizado. ${openTickets.length} abertos / ${lastFinished.length} finalizados (cache)`,
+          description: `Dashboard atualizado. ${openTickets.length} chamados abertos`,
           duration: 2000,
         });
       }
