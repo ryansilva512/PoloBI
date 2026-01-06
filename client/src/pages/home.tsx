@@ -923,6 +923,9 @@ export default function Home() {
         nome?: string;
       }> = [];
 
+      // IMPORTANTE: Guardar cópia dos IDs anteriores ANTES de qualquer modificação
+      const previousIdsSnapshot = new Set(previousOpenTicketIdsRef.current);
+
       if (openTicketsInitializedRef.current) {
         openTickets.forEach((ticket: any) => {
           const codigo = ticket.codigo || ticket.id;
@@ -944,7 +947,7 @@ export default function Home() {
         openTicketsInitializedRef.current = true;
       }
 
-      // Atualizar set de IDs abertos
+      // Atualizar set de IDs abertos para a próxima comparação
       previousOpenTicketIdsRef.current = currentOpenIds;
 
       // 4. Alertar sobre NOVOS chamados abertos
@@ -994,9 +997,10 @@ export default function Home() {
       // Isso é mais confiável que buscar uma API de finalizados que pode retornar dados inconsistentes
       const newFinalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
 
-      if (openTicketsInitializedRef.current && previousOpenTicketIdsRef.current.size > 0) {
+      // Usar o snapshot dos IDs anteriores (não a ref atualizada)
+      if (openTicketsInitializedRef.current && previousIdsSnapshot.size > 0) {
         // Encontrar IDs que estavam abertos ANTES mas não estão AGORA
-        const previousIds = Array.from(previousOpenTicketIdsRef.current);
+        const previousIds = Array.from(previousIdsSnapshot);
 
         previousIds.forEach(previousId => {
           // Se o ID anterior não está mais na lista atual de abertos
