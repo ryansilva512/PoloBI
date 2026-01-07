@@ -896,7 +896,10 @@ export default function Home() {
       const newTickets = result.data?.lista || [];
       const newTicketCount = newTickets.length;
 
-      // 2. Buscar chamados abertos (NOVO)
+      // 2. Atualizar ranking de pesquisas (Top Avaliados)
+      await fetchPesquisas();
+
+      // 3. Buscar chamados abertos
       const openTickets = await fetchOpenTickets();
       console.log('📋 Chamados abertos recebidos:', openTickets.length);
 
