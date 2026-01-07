@@ -902,6 +902,9 @@ export default function Home() {
       // 2. Atualizar ranking de pesquisas (Top Avaliados)
       await fetchPesquisas();
 
+      // 2.1 Atualizar dados de SLA (do relatório de tickets CSV)
+      await fetchRelatorioTickets();
+
       // 3. Buscar chamados abertos
       const openTickets = await fetchOpenTickets();
       console.log('📋 Chamados abertos recebidos:', openTickets.length);
