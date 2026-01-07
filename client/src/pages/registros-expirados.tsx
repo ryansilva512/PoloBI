@@ -10,7 +10,6 @@ import {
     parse,
 } from "date-fns";
 import { useFilters } from "@/context/FilterContext";
-import { useTicketsData } from "@/hooks/api/useTicketsData";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,7 +37,6 @@ import { cn } from "@/lib/utils";
 import { AlertTriangle, Clock, Timer, User, Building2, FileText, Download, Loader2, PartyPopper, TrendingUp, Flame } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import jsPDF from "jspdf";
-import type { TicketRaw } from "@shared/schema";
 
 const META_RESPOSTA_MINUTOS = 5;
 const META_ATENDIMENTO_HORAS = 4;
@@ -87,13 +85,84 @@ const getExceededColor = (porcentagem: number): { bg: string; text: string; bar:
 
 export default function RegistrosExpirados() {
     const { filters, updateFilters } = useFilters();
-    const { data: ticketsResponse, isLoading } = useTicketsData(filters, true);
     const [, setLocation] = useLocation();
     const [analistaFiltro, setAnalistaFiltro] = useState<string | undefined>(undefined);
     const [activeTab, setActiveTab] = useState<"resposta" | "atendimento">("resposta");
     const [isExporting, setIsExporting] = useState(false);
     const [pageSize, setPageSize] = useState(10);
     const { toast } = useToast();
+
+    // Interface para dados do relatório de tickets (com campos SLA)
+    interface TicketDetalhado {
+        ticket: string;
+        data_criacao: string;
+        hora_criacao: string;
+        tempo_gasto_sla_resposta: string;  // Tempo real SLA resposta
+        tempo_gasto_sla_solucao: string;   // Tempo real SLA solução
+        status_sla_resposta: string;       // "Em conformidade", "Estourado", etc
+        status_sla_solucao: string;        // "Em conformidade", "Estourado", etc
+        operador: string;
+        nome_fantasia: string;
+        tipo_ticket: string;
+        contato: string;
+        ticket_excluido: string;
+    }
+
+    // Estado para tickets detalhados (do CSV com campos SLA)
+    const [ticketsDetalhados, setTicketsDetalhados] = useState<TicketDetalhado[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Função para buscar relatório de tickets (endpoint que retorna CSV com campos SLA)
+    const fetchRelatorioTickets = async () => {
+        try {
+            setIsLoading(true);
+            const response = await fetch('/api/proxy/relatorio-tickets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (!response.ok) {
+                console.error('Erro ao buscar relatório de tickets:', response.status);
+                return;
+            }
+            const data = await response.json();
+            console.log('📊 Relatório de tickets carregado:', data?.lista?.length, 'registros');
+            setTicketsDetalhados(data?.lista || []);
+        } catch (e) {
+            console.error('Erro ao buscar relatório de tickets:', e);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Buscar relatório de tickets ao montar
+    useEffect(() => {
+        fetchRelatorioTickets();
+    }, []);
+
+    // Função para converter HH:MM:SS para minutos
+    const horaStringToMinutos = (horaStr: string): number => {
+        if (!horaStr || horaStr === 'Não possui') return 0;
+        const parts = horaStr.split(':').map(Number);
+        if (parts.length >= 2) {
+            let mins = parts[0] * 60 + parts[1];
+            if (parts.length === 3) mins += parts[2] / 60;
+            return mins;
+        }
+        return 0;
+    };
+
+    // Função para parsear data do CSV (formato dd/MM/yyyy)
+    const parseDataCSV = (data: string): Date | null => {
+        if (!data || data === 'Não possui') return null;
+        try {
+            const [day, month, year] = data.split('/').map(Number);
+            if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+            return new Date(year, month - 1, day);
+        } catch {
+            return null;
+        }
+    };
+
 
     // Ler parâmetro tab da URL para definir a aba inicial
     useEffect(() => {
@@ -103,8 +172,6 @@ export default function RegistrosExpirados() {
             setActiveTab(tab);
         }
     }, []);
-
-    const tickets = ticketsResponse?.lista ?? [];
 
     // Datas de filtro
     const dataInicialDate = useMemo(
@@ -116,114 +183,92 @@ export default function RegistrosExpirados() {
         [filters.data_final]
     );
 
-    // Tickets filtrados com deduplicação (mesma lógica de home.tsx)
+    // Tickets filtrados por data e analista (usando dados do CSV com campos SLA)
     const ticketsFiltrados = useMemo(() => {
-        if (!tickets.length) return [];
+        if (!ticketsDetalhados.length) return [];
 
-        const dedupKey = (ticket: typeof tickets[0]) =>
-            ticket.codigo ?? ticket.id ?? `${ticket.id}-${ticket.codigo}`;
+        return ticketsDetalhados.filter((ticket) => {
+            // Ignorar tickets excluídos
+            if (ticket.ticket_excluido === 'Sim') return false;
 
-        const dentroDoPeriodo = tickets.filter((ticket) => {
-            const dataRef = ticket.data_criacao || ticket.data_inicial || ticket.data_final;
-            const dataTicket = parseDateSafely(dataRef);
-            if (dataInicialDate && dataTicket && dataTicket < dataInicialDate) return false;
-            if (dataFinalDate && dataTicket && dataTicket > dataFinalDate) return false;
+            // Filtrar por data
+            const dataTicket = parseDataCSV(ticket.data_criacao);
+            if (dataInicialDate && dataTicket && dataTicket < startOfDay(dataInicialDate)) return false;
+            if (dataFinalDate && dataTicket && dataTicket > endOfDay(dataFinalDate)) return false;
+
+            // Filtrar por analista
+            if (analistaFiltro && ticket.operador !== analistaFiltro) return false;
+
             return true;
         });
+    }, [ticketsDetalhados, dataInicialDate, dataFinalDate, analistaFiltro]);
 
-        // Deduplicação - manter apenas o mais recente por codigo
-        const map = new Map<number | string, typeof tickets[0]>();
-        dentroDoPeriodo.forEach((t) => {
-            const key = dedupKey(t);
-            const existing = map.get(key);
-            if (!existing) {
-                map.set(key, t);
-                return;
-            }
-            const refDate = (ticket: typeof tickets[0]) =>
-                parseDateSafely(ticket.data_final) ||
-                parseDateSafely(ticket.data_inicial) ||
-                parseDateSafely(ticket.data_criacao);
-            const newDate = refDate(t)?.getTime() || -Infinity;
-            const oldDate = refDate(existing)?.getTime() || -Infinity;
-            if (newDate >= oldDate) {
-                map.set(key, t);
-            }
-        });
-
-        let result = Array.from(map.values());
-
-        // Aplicar filtro de analista
-        if (analistaFiltro) {
-            result = result.filter((t) => t.nome === analistaFiltro);
-        }
-
-        return result;
-    }, [tickets, dataInicialDate, dataFinalDate, analistaFiltro]);
-
-    // Respostas Expiradas (tempo de resposta > 5 minutos)
-    // Tempo de resposta = data_inicial - data_criacao
+    // ========== NOVA LÓGICA - IGUAL AO POWER BI ==========
+    // Respostas Expiradas: Filtrar por status_sla_resposta === "Estourado"
+    // Usa tempo_gasto_sla_resposta para mostrar o tempo
     const respostasExpiradas = useMemo(() => {
         return ticketsFiltrados
+            .filter((ticket) => {
+                // Filtrar por STATUS SLA RESPOSTA = "Estourado" (igual Power BI)
+                const status = ticket.status_sla_resposta?.toLowerCase() || '';
+                return status.includes('estourado') || status.includes('fora');
+            })
             .map((ticket) => {
-                const criacao = parseDateSafely(ticket.data_criacao);
-                const inicio = parseDateSafely(ticket.data_inicial);
-                if (!criacao || !inicio) return null;
-                const diffMs = inicio.getTime() - criacao.getTime();
-                if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-                const diffMinutos = diffMs / (1000 * 60);
-                if (diffMinutos <= META_RESPOSTA_MINUTOS) return null; // Dentro do prazo
+                // Usar tempo_gasto_sla_resposta para o tempo
+                const tempoResposta = horaStringToMinutos(ticket.tempo_gasto_sla_resposta);
                 return {
                     ...ticket,
-                    tempoResposta: diffMinutos,
+                    codigo: parseInt(ticket.ticket) || 0,
+                    nome: ticket.operador,
+                    nome_fantasia: ticket.nome_fantasia,
+                    tipo_chamado: { text: ticket.tipo_ticket || '-' },
+                    data_criacao: ticket.data_criacao,
+                    tempoResposta,
                 };
             })
-            .filter((t): t is NonNullable<typeof t> => t !== null)
             .sort((a, b) => b.tempoResposta - a.tempoResposta);
     }, [ticketsFiltrados]);
 
-    // Atendimentos Expirados (tempo de atendimento > 4 horas)
-    // CORREÇÃO FINAL: Usar horas_internas (tempo DENTRO do expediente) - igual ao Power BI
+    // Atendimentos Expirados: Filtrar por status_sla_solucao === "Estourado"
+    // Usa tempo_gasto_sla_solucao para mostrar o tempo
     const atendimentosExpirados = useMemo(() => {
         return ticketsFiltrados
+            .filter((ticket) => {
+                // Filtrar por STATUS SLA SOLUÇÃO = "Estourado" (igual Power BI)
+                const status = ticket.status_sla_solucao?.toLowerCase() || '';
+                return status.includes('estourado') || status.includes('fora');
+            })
             .map((ticket) => {
-                // CORREÇÃO: Usar horas_internas que é o tempo dentro do expediente
-                // Este é o campo correto que o Power BI usa
-                // Fallback para total_horas_atendimento se horas_internas não existir
-                const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
-                if (!horaStr) return null;
-                
-                // Converter HH:MM:SS ou HH:MM para minutos
-                const parts = horaStr.split(":").map(Number);
-                let diffMinutos = 0;
-                if (parts.length >= 2) {
-                    diffMinutos = parts[0] * 60 + parts[1];
-                    if (parts.length === 3) {
-                        diffMinutos += parts[2] / 60;
-                    }
-                }
-                
-                if (diffMinutos <= 0) return null;
-                
-                const metaMinutos = META_ATENDIMENTO_HORAS * 60;
-                if (diffMinutos <= metaMinutos) return null; // Dentro do prazo
+                // Usar tempo_gasto_sla_solucao para o tempo
+                const tempoAtendimento = horaStringToMinutos(ticket.tempo_gasto_sla_solucao);
                 return {
                     ...ticket,
-                    tempoAtendimento: diffMinutos,
+                    codigo: parseInt(ticket.ticket) || 0,
+                    nome: ticket.operador,
+                    nome_fantasia: ticket.nome_fantasia,
+                    tipo_chamado: { text: ticket.tipo_ticket || '-' },
+                    data_criacao: ticket.data_criacao,
+                    tempoAtendimento,
                 };
             })
-            .filter((t): t is NonNullable<typeof t> => t !== null)
             .sort((a, b) => b.tempoAtendimento - a.tempoAtendimento);
     }, [ticketsFiltrados]);
 
-    // Lista de analistas para filtro
+    console.log('📊 Registros Expirados:', {
+        totalTickets: ticketsDetalhados.length,
+        filtrados: ticketsFiltrados.length,
+        respostasEstouradas: respostasExpiradas.length,
+        atendimentosEstourados: atendimentosExpirados.length,
+    });
+
+    // Lista de analistas para filtro (usando dados do CSV)
     const analistas = useMemo(() => {
         const set = new Set<string>();
-        tickets.forEach((t) => {
-            if (t.nome) set.add(t.nome);
+        ticketsDetalhados.forEach((t) => {
+            if (t.operador) set.add(t.operador);
         });
         return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
-    }, [tickets]);
+    }, [ticketsDetalhados]);
 
     const handleDateChange = (type: "start" | "end", value: string) => {
         if (!value) {

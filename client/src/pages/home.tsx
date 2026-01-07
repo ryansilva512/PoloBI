@@ -237,10 +237,10 @@ export default function Home() {
       const kpiW = (pageWidth - margin * 2 - 40) / 5;
       const kpis = [
         { label: 'Total Tickets', value: String(tickets.length), c: [59, 130, 246] },
-        { label: 'Resp. em Dia', value: `${tempoMetrics.respostaEmDia}`, c: [34, 197, 94] },
-        { label: 'Atend. em Dia', value: `${tempoMetrics.atendimentoEmDia}`, c: [34, 197, 94] },
-        { label: 'Resp. Estourada', value: `${tempoMetrics.respostaEstourada}`, c: [239, 68, 68] },
-        { label: 'Atend. Expirado', value: `${tempoMetrics.atendimentoExpirado}`, c: [239, 68, 68] },
+        { label: 'Resp. em Dia', value: `${tickets.length - metricasSLAMilvus.respostaEstourada}`, c: [34, 197, 94] },
+        { label: 'Atend. em Dia', value: `${tickets.length - metricasSLAMilvus.solucaoEstourada}`, c: [34, 197, 94] },
+        { label: 'Resp. Estourada', value: `${metricasSLAMilvus.respostaEstourada}`, c: [239, 68, 68] },
+        { label: 'Atend. Expirado', value: `${metricasSLAMilvus.solucaoEstourada}`, c: [239, 68, 68] },
       ];
       kpis.forEach((kpi, i) => {
         const x = margin + 10 + i * (kpiW + 8);
@@ -617,10 +617,10 @@ export default function Home() {
       if (t.status_sla_resposta && t.status_sla_resposta !== 'Não possui') {
         totalComSLAResposta++;
         const statusLower = t.status_sla_resposta.toLowerCase();
-        // Valores possíveis: "Dentro do prazo", "Em dia", "Fora do prazo", "Expirado", "Estourado"
-        if (statusLower.includes('dentro') || statusLower.includes('em dia') || statusLower === 'ok') {
+        // Valores possíveis: "Em conformidade", "Estourado", "Não possui"
+        if (statusLower.includes('conformidade') || statusLower.includes('dentro') || statusLower.includes('em dia') || statusLower === 'ok') {
           respostaEmDia++;
-        } else if (statusLower.includes('fora') || statusLower.includes('expir') || statusLower.includes('estourado')) {
+        } else if (statusLower.includes('estourado') || statusLower.includes('fora') || statusLower.includes('expir')) {
           respostaEstourada++;
         }
       }
@@ -629,20 +629,23 @@ export default function Home() {
       if (t.status_sla_solucao && t.status_sla_solucao !== 'Não possui') {
         totalComSLASolucao++;
         const statusLower = t.status_sla_solucao.toLowerCase();
-        if (statusLower.includes('dentro') || statusLower.includes('em dia') || statusLower === 'ok') {
+        if (statusLower.includes('conformidade') || statusLower.includes('dentro') || statusLower.includes('em dia') || statusLower === 'ok') {
           solucaoEmDia++;
-        } else if (statusLower.includes('fora') || statusLower.includes('expir') || statusLower.includes('estourado')) {
+        } else if (statusLower.includes('estourado') || statusLower.includes('fora') || statusLower.includes('expir')) {
           solucaoEstourada++;
         }
       }
     });
 
-    console.log('📊 Métricas SLA Milvus:', {
+    console.log('📊 Métricas SLA Milvus (CSV - ticketsDetalhados):', {
+      totalTicketsCSV: ticketsDetalhados.filter(t => t.ticket_excluido !== 'Sim').length,
       respostaEmDia,
       respostaEstourada,
+      totalResposta: respostaEmDia + respostaEstourada,
+      totalComSLAResposta,
       solucaoEmDia,
       solucaoEstourada,
-      totalComSLAResposta,
+      totalSolucao: solucaoEmDia + solucaoEstourada,
       totalComSLASolucao,
     });
 
@@ -1472,6 +1475,9 @@ export default function Home() {
     setChamadosAtivos(ativos);
     setOpenTicketsCount(ativos.length);
 
+    // 3. Atualizar dados de SLA (do relatório de tickets CSV)
+    await fetchRelatorioTickets();
+
     // Verifica se há novos tickets
     if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
       const newTickets = newTicketCount - previousTicketCount;
@@ -1589,27 +1595,27 @@ export default function Home() {
     },
     {
       titulo: "Qtd Resposta em Dia",
-      valor: tempoMetrics.respostaEmDia.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalRespMedida
-        ? `${((tempoMetrics.respostaEmDia / tempoMetrics.totalRespMedida) * 100).toFixed(2)}%`
+      valor: (aggregatedData.totalTickets - metricasSLAMilvus.respostaEstourada).toLocaleString("pt-BR"),
+      detalhe: aggregatedData.totalTickets
+        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.respostaEstourada) / aggregatedData.totalTickets) * 100).toFixed(2)}%`
         : "0%",
       icon: <Timer className="h-5 w-5 text-sky-300" />,
       className: "bg-slate-500/10 border-slate-400/40",
     },
     {
       titulo: "Qtd Atendimento em Dia",
-      valor: tempoMetrics.atendimentoEmDia.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalAtendMedida
-        ? `${((tempoMetrics.atendimentoEmDia / tempoMetrics.totalAtendMedida) * 100).toFixed(2)}%`
+      valor: (aggregatedData.totalTickets - metricasSLAMilvus.solucaoEstourada).toLocaleString("pt-BR"),
+      detalhe: aggregatedData.totalTickets
+        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.solucaoEstourada) / aggregatedData.totalTickets) * 100).toFixed(2)}%`
         : "0%",
       icon: <Clock4 className="h-5 w-5 text-emerald-300" />,
       className: "bg-slate-500/10 border-slate-400/40",
     },
     {
       titulo: "Qtd Resposta Estourada",
-      valor: tempoMetrics.respostaEstourada.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalRespMedida
-        ? `${((tempoMetrics.respostaEstourada / tempoMetrics.totalRespMedida) * 100).toFixed(2)}%`
+      valor: metricasSLAMilvus.respostaEstourada.toLocaleString("pt-BR"),
+      detalhe: metricasSLAMilvus.totalComSLAResposta
+        ? `${((metricasSLAMilvus.respostaEstourada / metricasSLAMilvus.totalComSLAResposta) * 100).toFixed(2)}%`
         : "0%",
       icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
       className: "bg-red-500/10 border-red-500/40",
@@ -1617,9 +1623,9 @@ export default function Home() {
     },
     {
       titulo: "Qtd Atendimento Expirado",
-      valor: tempoMetrics.atendimentoExpirado.toLocaleString("pt-BR"),
-      detalhe: tempoMetrics.totalAtendMedida
-        ? `${((tempoMetrics.atendimentoExpirado / tempoMetrics.totalAtendMedida) * 100).toFixed(2)}%`
+      valor: metricasSLAMilvus.solucaoEstourada.toLocaleString("pt-BR"),
+      detalhe: metricasSLAMilvus.totalComSLASolucao
+        ? `${((metricasSLAMilvus.solucaoEstourada / metricasSLAMilvus.totalComSLASolucao) * 100).toFixed(2)}%`
         : "0%",
       icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
       className: "bg-red-600/10 border-red-500/50",
