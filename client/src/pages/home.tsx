@@ -484,6 +484,7 @@ export default function Home() {
       });
       if (!response.ok) return;
       const data = await response.json();
+      console.log('🔄 fetchRelatorioTickets - Atualizando dados:', data?.lista?.length, 'registros');
       setTicketsDetalhados(data?.lista || []);
     } catch (e) {
       console.error('Erro ao buscar relatório de tickets:', e);
