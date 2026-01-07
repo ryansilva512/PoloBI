@@ -1845,48 +1845,6 @@ export default function Home() {
         }
       </div>
 
-      {/* Card de Diagnóstico - Comparação entre cálculos manuais e SLA Milvus */}
-      {metricasSLAMilvus.totalComSLAResposta > 0 && (
-        <Card className="border-amber-500/30 bg-amber-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
-              Diagnóstico SLA - Comparação de Métricas
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-semibold">SLA RESPOSTA (Milvus)</p>
-                <p className="text-emerald-500 font-mono">✓ Em dia: {metricasSLAMilvus.respostaEmDia}</p>
-                <p className="text-red-500 font-mono">✗ Estourado: {metricasSLAMilvus.respostaEstourada}</p>
-                <p className="text-xs text-muted-foreground">Total: {metricasSLAMilvus.totalComSLAResposta}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-semibold">RESPOSTA (Cálculo Manual)</p>
-                <p className="text-emerald-500 font-mono">✓ Em dia: {tempoMetrics.respostaEmDia}</p>
-                <p className="text-red-500 font-mono">✗ Estourado: {tempoMetrics.respostaEstourada}</p>
-                <p className="text-xs text-muted-foreground">Total: {tempoMetrics.totalRespMedida}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-semibold">SLA SOLUÇÃO (Milvus)</p>
-                <p className="text-emerald-500 font-mono">✓ Em dia: {metricasSLAMilvus.solucaoEmDia}</p>
-                <p className="text-red-500 font-mono">✗ Estourado: {metricasSLAMilvus.solucaoEstourada}</p>
-                <p className="text-xs text-muted-foreground">Total: {metricasSLAMilvus.totalComSLASolucao}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-semibold">ATENDIMENTO (Cálculo Manual)</p>
-                <p className="text-emerald-500 font-mono">✓ Em dia: {tempoMetrics.atendimentoEmDia}</p>
-                <p className="text-red-500 font-mono">✗ Estourado: {tempoMetrics.atendimentoExpirado}</p>
-                <p className="text-xs text-muted-foreground">Total: {tempoMetrics.totalAtendMedida}</p>
-              </div>
-            </div>
-            <p className="text-xs text-amber-600 mt-3 italic">
-              ⚠️ Se houver grande diferença, os dados do Milvus são mais precisos pois consideram expediente e pausas SLA.
-            </p>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Gráficos de tempo médio + top operadores */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
