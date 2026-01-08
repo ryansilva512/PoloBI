@@ -514,7 +514,9 @@ export default function Home() {
     }
   };
 
-  // Calcular tempos médios usando dados do relatório detalhado
+  // Calcular tempos médios usando mesma lógica do Power BI
+  // Tempo Abertura = HORA DO PRIMEIRO ATENDIMENTO - HORA DE CRIAÇÃO DO TICKET
+  // Tempo Solução = TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE
   const temposDoRelatorio = useMemo(() => {
     console.log('📊 temposDoRelatorio - ticketsDetalhados:', ticketsDetalhados.length);
 
@@ -522,17 +524,23 @@ export default function Home() {
       return { tempoMedioAbertura: 0, tempoMedioSolucao: 0, totalResposta: 0, totalSolucao: 0 };
     }
 
-    // Debug: mostrar primeiro ticket
-    if (ticketsDetalhados.length > 0) {
-      console.log('📊 Primeiro ticket:', ticketsDetalhados[0]);
-    }
-
     // Preparar datas do filtro
     const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
     const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
 
-    const temposResposta: number[] = [];
-    const temposSolucao: number[] = [];
+    const temposResposta: number[] = [];  // Em horas decimais
+    const temposSolucao: number[] = [];   // Em horas decimais
+
+    // Função para converter HH:MM:SS para horas decimais
+    const horaParaDecimal = (horaStr: string): number | null => {
+      if (!horaStr || horaStr === 'Não possui' || horaStr === '') return null;
+      const partes = horaStr.split(':');
+      if (partes.length < 2) return null;
+      const horas = parseInt(partes[0]) || 0;
+      const minutos = parseInt(partes[1]) || 0;
+      const segundos = parseInt(partes[2]) || 0;
+      return horas + (minutos / 60) + (segundos / 3600);
+    };
 
     ticketsDetalhados.forEach((t) => {
       // Ignorar tickets excluídos
@@ -546,34 +554,39 @@ export default function Home() {
       if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
 
-      // Tempo de Resposta = tempo_gasto_sla_resposta (já desconta pausas SLA e finais de semana)
-      if (t.tempo_gasto_sla_resposta && t.tempo_gasto_sla_resposta !== 'Não possui') {
-        const minutos = horaStringToMinutos(t.tempo_gasto_sla_resposta);
-        if (minutos >= 0) {
-          temposResposta.push(minutos);
+      // TEMPO ABERTURA = HORA 1º ATENDIMENTO - HORA CRIAÇÃO (igual Power BI)
+      const horaCriacao = horaParaDecimal(t.hora_criacao);
+      const horaPrimeiroAtend = horaParaDecimal(t.hora_primeiro_atendimento);
+
+      if (horaCriacao !== null && horaPrimeiroAtend !== null) {
+        let diferenca = horaPrimeiroAtend - horaCriacao;
+        // Se negativo, usa 0 (igual Power BI: if [Diferenca de Horas] < 0 then 0)
+        if (diferenca < 0) diferenca = 0;
+        if (diferenca > 0) {  // Excluir zeros para não distorcer média
+          temposResposta.push(diferenca);
         }
       }
 
-      // Tempo de Solução = tempo_gasto_sla_solucao (já desconta pausas SLA e finais de semana)
-      if (t.tempo_gasto_sla_solucao && t.tempo_gasto_sla_solucao !== 'Não possui') {
-        const minutos = horaStringToMinutos(t.tempo_gasto_sla_solucao);
-        if (minutos >= 0) {
-          temposSolucao.push(minutos);
-        }
+      // TEMPO SOLUÇÃO = TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE (igual Power BI)
+      const tempoInterno = horaParaDecimal(t.tempo_atendimento_interno);
+      if (tempoInterno !== null && tempoInterno > 0) {
+        temposSolucao.push(tempoInterno);
       }
     });
 
-    const mediaResposta = temposResposta.length > 0
+    // Média em horas decimais, depois converter para minutos para formatação
+    const mediaRespostaHoras = temposResposta.length > 0
       ? temposResposta.reduce((a, b) => a + b, 0) / temposResposta.length
       : 0;
 
-    const mediaSolucao = temposSolucao.length > 0
+    const mediaSolucaoHoras = temposSolucao.length > 0
       ? temposSolucao.reduce((a, b) => a + b, 0) / temposSolucao.length
       : 0;
 
+    // Converter horas decimais para minutos para a função formatMinutosCompleto
     return {
-      tempoMedioAbertura: mediaResposta,
-      tempoMedioSolucao: mediaSolucao,
+      tempoMedioAbertura: mediaRespostaHoras * 60,  // Converter para minutos
+      tempoMedioSolucao: mediaSolucaoHoras * 60,    // Converter para minutos
       totalResposta: temposResposta.length,
       totalSolucao: temposSolucao.length,
     };
@@ -661,14 +674,26 @@ export default function Home() {
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
   // ========== FIM MÉTRICAS SLA MILVUS ==========
 
-  // Calcular tempo de resposta por operador usando dados do relatório CSV
+  // Calcular tempo de resposta por operador usando lógica Power BI
+  // Tempo Resposta = HORA DO PRIMEIRO ATENDIMENTO - HORA DE CRIAÇÃO DO TICKET
   const tempoRespostaPorOperadorCSV = useMemo(() => {
     if (!ticketsDetalhados.length) return [];
 
     const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
     const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
 
-    const map = new Map<string, { totalMinutos: number; count: number }>();
+    // Função para converter HH:MM:SS para horas decimais
+    const horaParaDecimal = (horaStr: string): number | null => {
+      if (!horaStr || horaStr === 'Não possui' || horaStr === '') return null;
+      const partes = horaStr.split(':');
+      if (partes.length < 2) return null;
+      const horas = parseInt(partes[0]) || 0;
+      const minutos = parseInt(partes[1]) || 0;
+      const segundos = parseInt(partes[2]) || 0;
+      return horas + (minutos / 60) + (segundos / 3600);
+    };
+
+    const map = new Map<string, { totalHoras: number; count: number }>();
 
     ticketsDetalhados.forEach((t) => {
       if (t.ticket_excluido === 'Sim') return;
@@ -680,15 +705,20 @@ export default function Home() {
       if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
 
-      // Usar tempo_gasto_sla_resposta (já desconta pausas SLA e finais de semana)
-      if (t.tempo_gasto_sla_resposta && t.tempo_gasto_sla_resposta !== 'Não possui') {
-        const minutos = horaStringToMinutos(t.tempo_gasto_sla_resposta);
-        if (minutos >= 0) {
+      // LÓGICA POWER BI: hora_primeiro_atendimento - hora_criacao
+      const horaCriacao = horaParaDecimal(t.hora_criacao);
+      const horaPrimeiroAtend = horaParaDecimal(t.hora_primeiro_atendimento);
+
+      if (horaCriacao !== null && horaPrimeiroAtend !== null) {
+        let diferenca = horaPrimeiroAtend - horaCriacao;
+        // Se negativo, usa 0 (igual Power BI)
+        if (diferenca < 0) diferenca = 0;
+        if (diferenca > 0) {  // Excluir zeros
           if (!map.has(t.operador)) {
-            map.set(t.operador, { totalMinutos: 0, count: 0 });
+            map.set(t.operador, { totalHoras: 0, count: 0 });
           }
           const data = map.get(t.operador)!;
-          data.totalMinutos += minutos;
+          data.totalHoras += diferenca;
           data.count += 1;
         }
       }
@@ -697,21 +727,31 @@ export default function Home() {
     return Array.from(map.entries())
       .map(([nome, data]) => ({
         nome,
-        tempoMedioMinutos: data.count ? data.totalMinutos / data.count : 0,
+        tempoMedioMinutos: data.count ? (data.totalHoras / data.count) * 60 : 0,  // Converter horas para minutos
       }))
       .sort((a, b) => b.tempoMedioMinutos - a.tempoMedioMinutos);
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
 
-  // Calcular tempo de atendimento por operador usando dados do relatório CSV
-  // CORREÇÃO: Usar tempo_atendimento_interno (tempo dentro do expediente)
-  // NÃO usar tempo_total_atendimento pois inclui tempo fora do expediente
+  // Calcular tempo de atendimento por operador usando lógica Power BI
+  // Tempo Atendimento = TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE
   const tempoAtendimentoPorOperadorCSV = useMemo(() => {
     if (!ticketsDetalhados.length) return [];
 
     const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
     const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
 
-    const map = new Map<string, { totalMinutos: number; count: number }>();
+    // Função para converter HH:MM:SS para horas decimais
+    const horaParaDecimal = (horaStr: string): number | null => {
+      if (!horaStr || horaStr === 'Não possui' || horaStr === '') return null;
+      const partes = horaStr.split(':');
+      if (partes.length < 2) return null;
+      const horas = parseInt(partes[0]) || 0;
+      const minutos = parseInt(partes[1]) || 0;
+      const segundos = parseInt(partes[2]) || 0;
+      return horas + (minutos / 60) + (segundos / 3600);
+    };
+
+    const map = new Map<string, { totalHoras: number; count: number }>();
 
     ticketsDetalhados.forEach((t) => {
       if (t.ticket_excluido === 'Sim') return;
@@ -723,24 +763,22 @@ export default function Home() {
       if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
 
-      // Usar tempo_gasto_sla_solucao (já desconta pausas SLA e finais de semana)
-      if (t.tempo_gasto_sla_solucao && t.tempo_gasto_sla_solucao !== 'Não possui') {
-        const minutos = horaStringToMinutos(t.tempo_gasto_sla_solucao);
-        if (minutos >= 0) {
-          if (!map.has(t.operador)) {
-            map.set(t.operador, { totalMinutos: 0, count: 0 });
-          }
-          const data = map.get(t.operador)!;
-          data.totalMinutos += minutos;
-          data.count += 1;
+      // LÓGICA POWER BI: tempo_atendimento_interno (TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE)
+      const tempoInterno = horaParaDecimal(t.tempo_atendimento_interno);
+      if (tempoInterno !== null && tempoInterno > 0) {
+        if (!map.has(t.operador)) {
+          map.set(t.operador, { totalHoras: 0, count: 0 });
         }
+        const data = map.get(t.operador)!;
+        data.totalHoras += tempoInterno;
+        data.count += 1;
       }
     });
 
     return Array.from(map.entries())
       .map(([nome, data]) => ({
         nome,
-        tempoMedioAtendimentoMinutos: data.count ? data.totalMinutos / data.count : 0,
+        tempoMedioAtendimentoMinutos: data.count ? (data.totalHoras / data.count) * 60 : 0,  // Converter horas para minutos
       }))
       .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
