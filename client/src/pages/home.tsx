@@ -64,6 +64,7 @@ const META_ATENDIMENTO_HORAS = 4;
 // Opções de intervalo de atualização automática
 const REFRESH_OPTIONS = [
   { label: "30 seg", value: "30000" },
+  { label: "1 min", value: "60000" },
   { label: "2min 30s", value: "150000" },
   { label: "5 min", value: "300000" },
   { label: "10 min", value: "600000" },
