@@ -1035,7 +1035,7 @@ export default function Home() {
           if (novosChamados.length === 1) {
             const primeiro = novosChamados[0];
             const cliente = primeiro.nome_fantasia || 'cliente desconhecido';
-            speakAnnouncement(`Bora, bora dons! Chamado novo do cliente ${cliente} com o assunto ${primeiro.assunto}`);
+            speakAnnouncement(`Bora, bora tropa! Chamado novo do cliente ${cliente} com o assunto ${primeiro.assunto}`);
           } else {
             speakAnnouncement(`Ô loco! Estamos com ${novosChamados.length} chamados, bora trabalhar dons!`);
           }
