@@ -1035,9 +1035,9 @@ export default function Home() {
           if (novosChamados.length === 1) {
             const primeiro = novosChamados[0];
             const cliente = primeiro.nome_fantasia || 'cliente desconhecido';
-            speakAnnouncement(`Atenção! Novo chamado do cliente ${cliente}: ${primeiro.assunto}`);
+            speakAnnouncement(`Bora, bora dons! Chamado novo do ${cliente} com o assunto ${primeiro.assunto}`);
           } else {
-            speakAnnouncement(`Atenção! Foram abertos ${novosChamados.length} novos chamados!`);
+            speakAnnouncement(`Ô loco! Estamos com ${novosChamados.length} chamados, bora trabalhar dons!`);
           }
         }, 300);
       }
@@ -1147,7 +1147,7 @@ export default function Home() {
           const operador = primeiro.nome || 'Operador';
           const cliente = primeiro.nome_fantasia || 'cliente';
           // Usando speakAnnouncement para garantir consistência
-          speakAnnouncement(`Atenção! O Operador ${operador} finalizou o chamado do cliente ${cliente}`);
+          speakAnnouncement(`O Dom ${operador}! Finalizou o chamado do ${cliente}, fala dele, nunca critiquei`);
         }, novosChamados.length > 0 ? 5000 : 500);
       } else if (novosChamados.length === 0) {
         // Se não houve finalizações nem novos, mostrar atualização silenciosa
@@ -1850,7 +1850,7 @@ export default function Home() {
                   size="sm"
                   onClick={() => {
                     playNewTicketSound();
-                    speakAnnouncement("Teste de áudio. Atenção! Foi aberto um chamado de teste!");
+                    speakAnnouncement("Testando o som, maninho! Tá tudo na paz, tudo certo");
                     toast({
                       title: "🔊 Teste de Áudio",
                       description: "Se você ouviu o som e a voz, está funcionando!",
