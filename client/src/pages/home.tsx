@@ -1037,7 +1037,7 @@ export default function Home() {
             const cliente = primeiro.nome_fantasia || 'cliente desconhecido';
             speakAnnouncement(`Bora, bora tropa! Chamado novo do cliente ${cliente} com o assunto ${primeiro.assunto}`);
           } else {
-            speakAnnouncement(`Ô loco! Estamos com ${novosChamados.length} chamados, bora trabalhar dons!`);
+            speakAnnouncement(`Ô loco! Estamos com ${novosChamados.length} chamados, bora trabalhar Maninhos!`);
           }
         }, 300);
       }
