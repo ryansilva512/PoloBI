@@ -10,6 +10,31 @@ import {
 // As requisições irão para: POST /api/proxy/relatorio-atendimento/listagem
 const API_BASE_URL = "/api/proxy";
 
+// Evento customizado para alertar sobre erros da API do Milvus
+export const MILVUS_API_ERROR_EVENT = "milvus-api-error";
+
+export interface MilvusApiErrorDetail {
+  status: number;
+  message: string;
+  endpoint: string;
+  timestamp: Date;
+}
+
+// Função para emitir alerta de erro da API
+function emitMilvusApiError(status: number, message: string, endpoint: string) {
+  const detail: MilvusApiErrorDetail = {
+    status,
+    message,
+    endpoint,
+    timestamp: new Date(),
+  };
+
+  // Emite evento customizado que pode ser capturado pelo frontend
+  window.dispatchEvent(new CustomEvent(MILVUS_API_ERROR_EVENT, { detail }));
+
+  console.error(`🚨 MILVUS API ERROR: ${status} - ${message} [${endpoint}]`);
+}
+
 class MilvusApiClient {
   private async request<T>(
     endpoint: string,
@@ -34,6 +59,14 @@ class MilvusApiClient {
       const response = await fetch(url, options);
 
       if (!response.ok) {
+        // Detectar erros 5xx (problemas no servidor da API do Milvus)
+        if (response.status >= 500 && response.status < 600) {
+          emitMilvusApiError(
+            response.status,
+            response.statusText || "Erro no servidor",
+            endpoint
+          );
+        }
         throw new Error(`API Error: ${response.status} ${response.statusText}`);
       }
 

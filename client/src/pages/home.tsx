@@ -351,6 +351,9 @@ export default function Home() {
   const previousOpenTicketsRef = useRef<any[]>([]);
   const openTicketsInitializedRef = useRef<boolean>(false);
 
+  // Ref para rastrear se houve erro de API recente (evitar falsos positivos de finalização)
+  const hadApiErrorRef = useRef<boolean>(false);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
 
@@ -920,6 +923,41 @@ export default function Home() {
     }
   }, []);
 
+  // Listener para erros da API do Milvus (500, 502, 503, 504)
+  useEffect(() => {
+    const handleMilvusApiError = (event: CustomEvent) => {
+      const { status, message, endpoint, timestamp } = event.detail;
+
+      console.error(`🚨 Erro da API Milvus detectado: ${status} ${message} [${endpoint}]`);
+
+      // Marcar que houve erro de API para evitar falsos positivos de finalização
+      hadApiErrorRef.current = true;
+      console.log('⚠️ Flag de erro de API ativada - próximas respostas vazias serão ignoradas');
+
+      // Mostrar toast de alerta
+      toast({
+        title: "🚨 Atenção Desenvolvedores!",
+        description: `A API do Milvus está fora do ar! Erro ${status}: ${message}`,
+        variant: "destructive",
+        duration: 10000, // 10 segundos
+      });
+
+      // Falar alerta sonoro
+      speakAnnouncement("Atenção desenvolvedores do sistema! A API do Milvus está fora do ar!");
+
+      // Tocar som de alerta
+      playNewTicketSound();
+    };
+
+    // Adicionar listener
+    window.addEventListener('milvus-api-error', handleMilvusApiError as EventListener);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('milvus-api-error', handleMilvusApiError as EventListener);
+    };
+  }, [toast]);
+
   // Auto-refresh effect
   useEffect(() => {
     if (!refreshInterval) {
@@ -961,6 +999,24 @@ export default function Home() {
       console.log('📋 IDs atuais:', Array.from(currentOpenIds));
       console.log('📋 IDs anteriores:', Array.from(previousOpenTicketIdsRef.current));
       console.log('📋 Inicializado?', openTicketsInitializedRef.current);
+      console.log('📋 Houve erro de API anterior?', hadApiErrorRef.current);
+
+      // PROTEÇÃO: Se a resposta veio vazia (0 IDs) e havia dados anteriores, verificar se houve erro de API
+      // Se houve erro, ignorar essa resposta e manter os dados anteriores
+      if (currentOpenIds.size === 0 && previousOpenTicketIdsRef.current.size > 0) {
+        if (hadApiErrorRef.current) {
+          console.log('⚠️ PROTEÇÃO: Ignorando resposta vazia devido a erro de API anterior');
+          console.log('⚠️ Mantendo IDs anteriores:', Array.from(previousOpenTicketIdsRef.current));
+          // Resetar flag de erro
+          hadApiErrorRef.current = false;
+          // NÃO atualizar os IDs - manter os anteriores
+          setIsRefreshing(false);
+          return; // Sair da função sem processar finalizações falsas
+        }
+      }
+
+      // Se não houve erro, resetar a flag
+      hadApiErrorRef.current = false;
 
       const novosChamados: Array<{
         codigo: number;
