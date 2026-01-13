@@ -369,11 +369,22 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'ChamadosAbertos', total_registros: 100 }),
       });
-      if (!response.ok) return [];
+
+      // Detectar erros 5xx e ativar flag de proteção
+      if (!response.ok) {
+        if (response.status >= 500 && response.status < 600) {
+          console.error(`🚨 Erro 5xx na API de chamados abertos: ${response.status}`);
+          hadApiErrorRef.current = true;
+        }
+        return [];
+      }
+
       const data = await response.json();
       return data?.lista || [];
     } catch (e) {
       console.error('Erro ao buscar chamados abertos:', e);
+      // Também ativar flag em caso de erro de rede
+      hadApiErrorRef.current = true;
       return [];
     }
   };
