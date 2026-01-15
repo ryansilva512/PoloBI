@@ -945,19 +945,13 @@ export default function Home() {
       hadApiErrorRef.current = true;
       console.log('⚠️ Flag de erro de API ativada - próximas respostas vazias serão ignoradas');
 
-      // Mostrar toast de alerta
+      // Mostrar toast de alerta (sem áudio, apenas visual)
       toast({
         title: "🚨 Atenção Desenvolvedores!",
         description: `A API do Milvus está fora do ar! Erro ${status}: ${message}`,
         variant: "destructive",
         duration: 10000, // 10 segundos
       });
-
-      // Falar alerta sonoro
-      speakAnnouncement("Atenção desenvolvedores do sistema! A API do Milvus está fora do ar!");
-
-      // Tocar som de alerta
-      playNewTicketSound();
     };
 
     // Adicionar listener
