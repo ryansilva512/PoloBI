@@ -864,10 +864,15 @@ export default function Home() {
         const voices = window.speechSynthesis.getVoices();
         console.log('🔊 Vozes disponíveis:', voices.length);
 
-        // Priorizar voz "Maria" (Microsoft) ou "Google"
-        let targetVoice = voices.find(v => v.name.includes('Maria') && v.lang.includes('pt'));
+        // Priorizar voz masculina "Daniel" (Microsoft) ou "Paulo"
+        let targetVoice = voices.find(v => v.name.includes('Daniel') && v.lang.includes('pt'));
 
         if (!targetVoice) {
+          targetVoice = voices.find(v => v.name.includes('Paulo') && v.lang.includes('pt'));
+        }
+
+        if (!targetVoice) {
+          // Tentar Google masculino ou qualquer voz em português
           targetVoice = voices.find(v => v.name.includes('Google') && v.lang.includes('pt'));
         }
 
