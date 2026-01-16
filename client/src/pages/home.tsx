@@ -1096,9 +1096,9 @@ export default function Home() {
           if (novosChamados.length === 1) {
             const primeiro = novosChamados[0];
             const cliente = primeiro.nome_fantasia || 'cliente desconhecido';
-            speakAnnouncement(`Bora, bora tropa! Chamado novo do cliente ${cliente} com o assunto ${primeiro.assunto}`);
+            speakAnnouncement(`Atenção! Novo chamado do cliente ${cliente}, com o assunto, ${primeiro.assunto}`);
           } else {
-            speakAnnouncement(`Ô loco! Estamos com ${novosChamados.length} chamados, bora trabalhar Maninhos!`);
+            speakAnnouncement(`Atenção! Estão abertos ${novosChamados.length} chamados!`);
           }
         }, 300);
       }
@@ -1208,7 +1208,7 @@ export default function Home() {
           const operador = primeiro.nome || 'Operador';
           const cliente = primeiro.nome_fantasia || 'cliente';
           // Usando speakAnnouncement para garantir consistência
-          speakAnnouncement(`O Dom ${operador}! Finalizou o chamado do cliente ${cliente}, fala dele, nunca critiquei`);
+          speakAnnouncement(`Atenção! O Operador ${operador} finalizou o chamado do cliente ${cliente}`);
         }, novosChamados.length > 0 ? 5000 : 500);
       } else if (novosChamados.length === 0) {
         // Se não houve finalizações nem novos, mostrar atualização silenciosa
@@ -1911,7 +1911,7 @@ export default function Home() {
                   size="sm"
                   onClick={() => {
                     playNewTicketSound();
-                    speakAnnouncement("Testando o som, maninho! Tá tudo na paz, tudo certo");
+                    speakAnnouncement("Olá a Todos! Bem vindo ao Polo Bi Ai");
                     toast({
                       title: "🔊 Teste de Áudio",
                       description: "Se você ouviu o som e a voz, está funcionando!",
