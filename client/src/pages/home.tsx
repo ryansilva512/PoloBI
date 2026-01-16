@@ -1916,7 +1916,7 @@ export default function Home() {
                   size="sm"
                   onClick={() => {
                     playNewTicketSound();
-                    speakAnnouncement("Olá a Todos! Bem vindo ao Polo Bi Ai");
+                    speakAnnouncement("Olá a Todos! Bem vindo ao Pólo Bi Ai");
                     toast({
                       title: "🔊 Teste de Áudio",
                       description: "Se você ouviu o som e a voz, está funcionando!",
