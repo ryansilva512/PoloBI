@@ -1874,6 +1874,24 @@ export default function Home() {
                 placeholder="Selecione o período"
               />
             </div>
+
+            {/* Card de Chamados Ativos */}
+            <div className="flex items-center gap-8 px-6 py-3 rounded-lg border border-emerald-500/50 min-w-[400px]">
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold uppercase text-emerald-400 tracking-wider">Chamados Ativos</span>
+                <span className="text-4xl font-bold text-white">{openTicketsCount}</span>
+              </div>
+              <div className="flex flex-col gap-1 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-emerald-400">{chamadosAtivos.filter((c: any) => c.status === 'Atendendo').length} atendendo</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                  <span className="text-yellow-400">{chamadosAtivos.filter((c: any) => c.status === 'Pausado').length} pausado</span>
+                </div>
+              </div>
+            </div>
             <div className="flex flex-col gap-1 ml-auto">
               <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1">
                 <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
