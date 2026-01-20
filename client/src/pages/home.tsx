@@ -1413,25 +1413,70 @@ export default function Home() {
     [filters.data_inicial, filters.data_final]
   );
 
-  // Calcular chamados por dia para o calendário heatmap
+  // Calcular chamados finalizados por dia para o calendário heatmap (usando CSV)
   const chamadosPorDia = useMemo(() => {
-    if (!ticketsFiltrados.length) return new Map<string, number>();
+    if (!ticketsDetalhados.length) return new Map<string, number>();
+
+    // Preparar datas do filtro
+    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
+    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
 
     const map = new Map<string, number>();
+    let ticketsContados = 0;
+    let ticketsIgnorados = 0;
 
-    ticketsFiltrados.forEach((ticket) => {
-      const dataRef = ticket.data_criacao || ticket.data_inicial;
-      const dataTicket = parseDateSafely(dataRef);
+    ticketsDetalhados.forEach((t) => {
+      // Ignorar tickets excluídos
+      if (t.ticket_excluido === 'Sim') return;
 
-      if (!dataTicket) return;
+      // Usar data_solucao (Data da solução) do CSV
+      const dataSolucaoCSV = (t as any).data_solucao;
+      if (!dataSolucaoCSV || dataSolucaoCSV === 'Não possui' || dataSolucaoCSV === '') {
+        ticketsIgnorados++;
+        return;
+      }
 
+      // Parsear data_solucao (formato dd/MM/yyyy)
+      let dataTicket: Date | null = null;
+      try {
+        const parts = dataSolucaoCSV.split('/');
+        if (parts.length === 3) {
+          const [day, month, year] = parts.map(Number);
+          dataTicket = new Date(year, month - 1, day);
+          if (!isValid(dataTicket)) dataTicket = null;
+        }
+      } catch {
+        dataTicket = null;
+      }
+
+      if (!dataTicket) {
+        ticketsIgnorados++;
+        return;
+      }
+
+      // Aplicar filtro de data
+      if (dataInicialFiltro && dataTicket < startOfDay(dataInicialFiltro)) return;
+      if (dataFinalFiltro && dataTicket > endOfDay(dataFinalFiltro)) return;
+
+      ticketsContados++;
       // Formatar como YYYY-MM-DD para usar como chave
       const dateKey = format(dataTicket, 'yyyy-MM-dd');
       map.set(dateKey, (map.get(dateKey) || 0) + 1);
     });
 
+    // DEBUG: Mostrar no console para investigar
+    const totalNoCalendario = Array.from(map.values()).reduce((a, b) => a + b, 0);
+    console.log('📊 DEBUG Calendário (CSV):', {
+      ticketsDetalhadosTotal: ticketsDetalhados.length,
+      ticketsContados,
+      ticketsIgnorados,
+      totalNoCalendario,
+      diasComTickets: map.size,
+      detalhePorDia: Object.fromEntries(map)
+    });
+
     return map;
-  }, [ticketsFiltrados]);
+  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
 
   // Gerar dados do calendário para o mês atual baseado no período selecionado
   const calendarioData = useMemo(() => {
