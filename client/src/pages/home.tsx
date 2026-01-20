@@ -1466,6 +1466,35 @@ export default function Home() {
 
     // DEBUG: Mostrar no console para investigar
     const totalNoCalendario = Array.from(map.values()).reduce((a, b) => a + b, 0);
+    
+    // Identificar tickets finalizados em finais de semana
+    const ticketsFimDeSemana: { ticket: string; data: string; diaSemana: string }[] = [];
+    ticketsDetalhados.forEach((t) => {
+      if (t.ticket_excluido === 'Sim') return;
+      const dataSolucaoCSV = (t as any).data_solucao;
+      if (!dataSolucaoCSV || dataSolucaoCSV === 'Não possui' || dataSolucaoCSV === '') return;
+      
+      const parts = dataSolucaoCSV.split('/');
+      if (parts.length !== 3) return;
+      const [day, month, year] = parts.map(Number);
+      const dataTicket = new Date(year, month - 1, day);
+      if (!isValid(dataTicket)) return;
+      
+      // Aplicar filtro de data
+      if (dataInicialFiltro && dataTicket < startOfDay(dataInicialFiltro)) return;
+      if (dataFinalFiltro && dataTicket > endOfDay(dataFinalFiltro)) return;
+      
+      const diaSemana = dataTicket.getDay(); // 0 = Domingo, 6 = Sábado
+      if (diaSemana === 0 || diaSemana === 6) {
+        const diasNome = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+        ticketsFimDeSemana.push({
+          ticket: t.ticket,
+          data: dataSolucaoCSV,
+          diaSemana: diasNome[diaSemana]
+        });
+      }
+    });
+    
     console.log('📊 DEBUG Calendário (CSV):', {
       ticketsDetalhadosTotal: ticketsDetalhados.length,
       ticketsContados,
@@ -1474,6 +1503,10 @@ export default function Home() {
       diasComTickets: map.size,
       detalhePorDia: Object.fromEntries(map)
     });
+    
+    if (ticketsFimDeSemana.length > 0) {
+      console.log('⚠️ TICKETS FINALIZADOS EM FINAIS DE SEMANA:', ticketsFimDeSemana);
+    }
 
     return map;
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
@@ -1956,8 +1989,11 @@ export default function Home() {
           {/* Calendário Heatmap de Chamados */}
           <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px]">
             <CardContent className="py-3 px-4">
-              <div className="text-xs font-semibold uppercase text-muted-foreground mb-2 text-center">
+              <div className="text-xs font-semibold uppercase text-muted-foreground mb-1 text-center">
                 Chamados por Dia
+              </div>
+              <div className="text-[10px] text-muted-foreground/70 mb-2 text-center capitalize">
+                {calendarioData.mes} (Data Solução)
               </div>
               <table className="w-full text-xs">
                 <thead>
