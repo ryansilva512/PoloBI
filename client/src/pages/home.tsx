@@ -1914,77 +1914,92 @@ export default function Home() {
   return (
     <div ref={reportRef} className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <PageHeader
-            titulo="Visão Geral"
-            subtitulo="Dashboard executivo inspirado no painel compartilhado"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportToPDF}
-            disabled={isExporting}
-            className="h-9 gap-2"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Exportando...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4" />
-                Exportar PDF
-              </>
-            )}
-          </Button>
-        </div>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-4">
+            <PageHeader
+              titulo="Visão Geral"
+              subtitulo="Dashboard executivo inspirado no painel compartilhado"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportToPDF}
+              disabled={isExporting}
+              className="h-9 gap-2"
+            >
+              {isExporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Exportando...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  Exportar PDF
+                </>
+              )}
+            </Button>
+          </div>
 
-        {/* Widget Top 3 Pesquisas (Header) */}
-        <div className="flex-1 px-4 hidden xl:block">
+          {/* Widget Top 3 Pesquisas (abaixo do título) */}
           {rankingPesquisas.length > 0 && (
-            <div className="flex items-center justify-center h-full">
-              <div className="flex items-center gap-10 bg-slate-900/60 py-3 px-8 rounded-xl border border-yellow-500/20 shadow-lg shadow-yellow-500/5 backdrop-blur-md">
-                <div className="text-sm font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-2 px-2 border-r border-slate-700/50">
-                  <Trophy className="h-5 w-5" /> Top Avaliados
-                </div>
-                <div className="flex items-center gap-8 pr-2">
-                  {rankingPesquisas.map((item, idx) => (
-                    <div key={item.operador} className="flex items-center gap-4">
-                      <div className="relative">
-                        <Avatar className={cn("border-2 border-slate-900 ring-2 ring-offset-2 ring-offset-slate-950",
-                          idx === 0 ? "h-14 w-14 ring-yellow-500" :
-                            idx === 1 ? "h-12 w-12 ring-slate-400" :
-                              "h-12 w-12 ring-amber-700"
-                        )}>
-                          <AvatarImage src={getAvatarSrc(item.operador)} alt={item.operador} />
-                          <AvatarFallback className="text-xs bg-yellow-950 text-yellow-500 font-bold">
-                            {item.operador.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                      </div>
-                      <div className="flex flex-col leading-none gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className={cn("font-bold text-slate-200 flex items-center gap-1.5", idx === 0 ? "text-base text-yellow-100" : "text-sm")}>
-                            {idx === 0 && <Trophy className="h-4 w-4 text-yellow-500 fill-yellow-500/20" />}
-                            {idx === 1 && <Medal className="h-4 w-4 text-slate-400 fill-slate-400/20" />}
-                            {idx === 2 && <Medal className="h-4 w-4 text-amber-700 fill-amber-700/20" />}
-                            {item.operador.split(' ')[0]}
-                          </span>
-                          {/* Badge de ranking opcional se o cliente quiser manter o numero visualmente */}
-                          {/* <span className="text-[10px] font-bold text-muted-foreground">#{idx + 1}</span> */}
-                        </div>
-                        <span className="text-xs text-muted-foreground font-medium bg-slate-800/80 px-2 py-0.5 rounded-full w-fit whitespace-nowrap">
-                          {item.quantidade} <span className="inline">avaliações</span>
+            <div className="flex items-center gap-10 bg-slate-900/60 py-3 px-8 rounded-xl border border-yellow-500/20 shadow-lg shadow-yellow-500/5 backdrop-blur-md">
+              <div className="text-sm font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-2 px-2 border-r border-slate-700/50">
+                <Trophy className="h-5 w-5" /> Top Avaliados
+              </div>
+              <div className="flex items-center gap-8 pr-2">
+                {rankingPesquisas.map((item, idx) => (
+                  <div key={item.operador} className="flex items-center gap-4">
+                    <div className="relative">
+                      <Avatar className={cn("border-2 border-slate-900 ring-2 ring-offset-2 ring-offset-slate-950",
+                        idx === 0 ? "h-14 w-14 ring-yellow-500" :
+                          idx === 1 ? "h-12 w-12 ring-slate-400" :
+                            "h-12 w-12 ring-amber-700"
+                      )}>
+                        <AvatarImage src={getAvatarSrc(item.operador)} alt={item.operador} />
+                        <AvatarFallback className="text-xs bg-yellow-950 text-yellow-500 font-bold">
+                          {item.operador.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                    </div>
+                    <div className="flex flex-col leading-none gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className={cn("font-bold text-slate-200 flex items-center gap-1.5", idx === 0 ? "text-base text-yellow-100" : "text-sm")}>
+                          {idx === 0 && <Trophy className="h-4 w-4 text-yellow-500 fill-yellow-500/20" />}
+                          {idx === 1 && <Medal className="h-4 w-4 text-slate-400 fill-slate-400/20" />}
+                          {idx === 2 && <Medal className="h-4 w-4 text-amber-700 fill-amber-700/20" />}
+                          {item.operador.split(' ')[0]}
                         </span>
                       </div>
+                      <span className="text-xs text-muted-foreground font-medium bg-slate-800/80 px-2 py-0.5 rounded-full w-fit whitespace-nowrap">
+                        {item.quantidade} <span className="inline">avaliações</span>
+                      </span>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
+
+          {/* Card de Chamados Ativos - movido para cá */}
+          <div className="flex items-center justify-between px-6 py-3 rounded-lg border border-emerald-500/50 bg-slate-900/60 min-w-[300px]">
+            <div className="flex items-center gap-4">
+              <span className="text-xs font-semibold uppercase text-emerald-400 tracking-wider">Chamados Ativos</span>
+              <span className="text-4xl font-bold text-white">{openTicketsCount}</span>
+            </div>
+            <div className="flex flex-col gap-1 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-emerald-400">{chamadosAtivos.filter((c: any) => c.status === 'Atendendo').length} atendendo</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                <span className="text-yellow-400">{chamadosAtivos.filter((c: any) => c.status === 'Pausado').length} pausado</span>
+              </div>
+            </div>
+          </div>
         </div>
+
         <div className="flex gap-3">
           {/* Calendário Heatmap de Chamados */}
           <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px]">
@@ -2049,24 +2064,6 @@ export default function Home() {
                 onDateRangeChange={handleDateRangeChange}
                 placeholder="Selecione o período"
               />
-            </div>
-
-            {/* Card de Chamados Ativos */}
-            <div className="flex items-center gap-8 px-6 py-3 rounded-lg border border-emerald-500/50 min-w-[400px]">
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold uppercase text-emerald-400 tracking-wider">Chamados Ativos</span>
-                <span className="text-4xl font-bold text-white">{openTicketsCount}</span>
-              </div>
-              <div className="flex flex-col gap-1 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="text-emerald-400">{chamadosAtivos.filter((c: any) => c.status === 'Atendendo').length} atendendo</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
-                  <span className="text-yellow-400">{chamadosAtivos.filter((c: any) => c.status === 'Pausado').length} pausado</span>
-                </div>
-              </div>
             </div>
 
             {/* Cards de Tempo (META) */}

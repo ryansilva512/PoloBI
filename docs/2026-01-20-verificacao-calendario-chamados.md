@@ -86,9 +86,50 @@ Isso permite identificar:
 2. Se há algum problema de dados no sistema Milvus
 3. Quais tickets específicos foram finalizados em finais de semana
 
+## Terceira Alteração - Reorganização do Layout "Top Avaliados"
+
+O widget "TOP AVALIADOS" foi movido do centro do header para **abaixo do título "Visão Geral"**, ocupando a área que estava vazia à esquerda.
+
+### Layout Anterior:
+```
+[Visão Geral + Exportar PDF] --- [TOP AVALIADOS] --- [Calendário]
+```
+
+### Layout Novo:
+```
+[Visão Geral + Exportar PDF]                        [Calendário]
+[TOP AVALIADOS                ]
+```
+
+Benefícios:
+- Melhor aproveitamento do espaço
+- Layout mais organizado
+- Visibilidade em todas as resoluções (removido `hidden xl:block`)
+
+## Quarta Alteração - Card "Chamados Ativos" movido
+
+O card de **CHAMADOS ATIVOS** foi movido da linha do filtro de período para **abaixo do widget TOP AVALIADOS**.
+
+### Layout Anterior:
+```
+[TOP AVALIADOS]
+[PERÍODO] [CHAMADOS ATIVOS] [META 00:05:00] [META 04:00:00] [ATUALIZAÇÃO]
+```
+
+### Layout Novo:
+```
+[TOP AVALIADOS]
+[CHAMADOS ATIVOS]
+[PERÍODO] [META 00:05:00] [META 04:00:00] [ATUALIZAÇÃO]
+```
+
+Isso agrupa visualmente o TOP AVALIADOS com os Chamados Ativos no canto superior esquerdo do dashboard, deixando os cards de META na linha do período.
+
 ## Arquivos Modificados
 
 - `client/src/pages/home.tsx`:
   - Adição de subtítulo com mês/ano no card do calendário
   - Adição de log para identificar tickets finalizados em finais de semana
+  - Reorganização do widget "TOP AVALIADOS" para área inferior esquerda
+  - Movimentação do card "CHAMADOS ATIVOS" para abaixo do TOP AVALIADOS
 
