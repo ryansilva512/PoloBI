@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useFilters } from "@/context/FilterContext";
 import { useTicketsData } from "@/hooks/api/useTicketsData";
 import { format, parseISO, isValid, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import {
   aggregateTicketData,
   calculateSLADistribution,
@@ -1412,6 +1413,76 @@ export default function Home() {
     [filters.data_inicial, filters.data_final]
   );
 
+  // Calcular chamados por dia para o calendário heatmap
+  const chamadosPorDia = useMemo(() => {
+    if (!ticketsFiltrados.length) return new Map<string, number>();
+
+    const map = new Map<string, number>();
+
+    ticketsFiltrados.forEach((ticket) => {
+      const dataRef = ticket.data_criacao || ticket.data_inicial;
+      const dataTicket = parseDateSafely(dataRef);
+
+      if (!dataTicket) return;
+
+      // Formatar como YYYY-MM-DD para usar como chave
+      const dateKey = format(dataTicket, 'yyyy-MM-dd');
+      map.set(dateKey, (map.get(dateKey) || 0) + 1);
+    });
+
+    return map;
+  }, [ticketsFiltrados]);
+
+  // Gerar dados do calendário para o mês atual baseado no período selecionado
+  const calendarioData = useMemo(() => {
+    const dataInicio = dataInicialDate || new Date();
+    const dataFim = dataFinalDate || new Date();
+
+    // Pegar o primeiro dia do mês de início
+    const primeiroDiaMes = new Date(dataInicio.getFullYear(), dataInicio.getMonth(), 1);
+    const ultimoDiaMes = new Date(dataInicio.getFullYear(), dataInicio.getMonth() + 1, 0);
+
+    // Calcular qual dia da semana é o primeiro dia do mês (0 = Domingo, 6 = Sábado)
+    const primeiroDiaSemana = primeiroDiaMes.getDay();
+
+    // Criar array de semanas
+    const semanas: Array<Array<{ dia: number | null; quantidade: number; data: Date | null }>> = [];
+    let semanaAtual: Array<{ dia: number | null; quantidade: number; data: Date | null }> = [];
+
+    // Preencher dias vazios antes do primeiro dia do mês
+    for (let i = 0; i < primeiroDiaSemana; i++) {
+      semanaAtual.push({ dia: null, quantidade: 0, data: null });
+    }
+
+    // Preencher os dias do mês
+    for (let dia = 1; dia <= ultimoDiaMes.getDate(); dia++) {
+      const dataAtual = new Date(dataInicio.getFullYear(), dataInicio.getMonth(), dia);
+      const dateKey = format(dataAtual, 'yyyy-MM-dd');
+      const quantidade = chamadosPorDia.get(dateKey) || 0;
+
+      semanaAtual.push({ dia, quantidade, data: dataAtual });
+
+      // Se chegou no sábado ou é o último dia, começa nova semana
+      if (semanaAtual.length === 7) {
+        semanas.push(semanaAtual);
+        semanaAtual = [];
+      }
+    }
+
+    // Preencher dias vazios após o último dia do mês
+    if (semanaAtual.length > 0) {
+      while (semanaAtual.length < 7) {
+        semanaAtual.push({ dia: null, quantidade: 0, data: null });
+      }
+      semanas.push(semanaAtual);
+    }
+
+    return {
+      mes: format(dataInicio, 'MMMM yyyy', { locale: ptBR }),
+      semanas,
+    };
+  }, [dataInicialDate, dataFinalDate, chamadosPorDia]);
+
   const tempoMetrics = useMemo(() => {
     if (!ticketsFiltrados.length) {
       return {
@@ -1837,26 +1908,50 @@ export default function Home() {
           )}
         </div>
         <div className="flex gap-3">
-          <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
-            <CardHeader className="py-2 px-3">
-              <CardTitle className="text-emerald-400 text-sm">META 00:05:00</CardTitle>
-            </CardHeader>
-            <CardContent className="py-2 px-3">
-              <div className="text-2xl font-mono font-bold">
-                {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
+          {/* Calendário Heatmap de Chamados */}
+          <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px]">
+            <CardContent className="py-3 px-4">
+              <div className="text-xs font-semibold uppercase text-muted-foreground mb-2 text-center">
+                Chamados por Dia
               </div>
-              <p className="text-xs text-muted-foreground">Tempo médio de abertura</p>
-            </CardContent>
-          </Card>
-          <Card className="bg-emerald-500/10 border-emerald-500/40 min-w-[160px]">
-            <CardHeader className="py-2 px-3">
-              <CardTitle className="text-emerald-400 text-sm">META 04:00:00</CardTitle>
-            </CardHeader>
-            <CardContent className="py-2 px-3">
-              <div className="text-2xl font-mono font-bold">
-                {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
-              </div>
-              <p className="text-xs text-muted-foreground">Tempo médio de solução</p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr>
+                    {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((dia, i) => (
+                      <th key={i} className="text-center text-muted-foreground font-normal px-1 py-1">
+                        {dia}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {calendarioData.semanas.map((semana, sIdx) => (
+                    <tr key={sIdx}>
+                      {semana.map((cell, dIdx) => (
+                        <td key={dIdx} className="text-center p-0.5">
+                          {cell.dia !== null ? (
+                            <div
+                              className={cn(
+                                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-all",
+                                cell.quantidade === 0 && "text-muted-foreground/50",
+                                cell.quantidade > 0 && cell.quantidade <= 5 && "bg-blue-500 text-white",
+                                cell.quantidade > 5 && cell.quantidade <= 10 && "bg-blue-600 text-white",
+                                cell.quantidade > 10 && cell.quantidade <= 20 && "bg-orange-500 text-white",
+                                cell.quantidade > 20 && "bg-orange-600 text-white font-bold"
+                              )}
+                              title={`${cell.dia}: ${cell.quantidade} chamados`}
+                            >
+                              {cell.quantidade > 0 ? cell.quantidade : '-'}
+                            </div>
+                          ) : (
+                            <div className="w-6 h-6" />
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </CardContent>
           </Card>
         </div>
@@ -1892,6 +1987,28 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {/* Cards de Tempo (META) */}
+            <div className="flex items-center gap-4 px-5 py-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10">
+              <div className="flex flex-col items-center">
+                <span className="text-xs font-semibold text-emerald-400">META 00:05:00</span>
+                <span className="text-2xl font-mono font-bold text-white">
+                  {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
+                </span>
+                <span className="text-[10px] text-muted-foreground">Tempo médio abertura</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 px-5 py-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10">
+              <div className="flex flex-col items-center">
+                <span className="text-xs font-semibold text-emerald-400">META 04:00:00</span>
+                <span className="text-2xl font-mono font-bold text-white">
+                  {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
+                </span>
+                <span className="text-[10px] text-muted-foreground">Tempo médio solução</span>
+              </div>
+            </div>
+
             <div className="flex flex-col gap-1 ml-auto">
               <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1">
                 <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
