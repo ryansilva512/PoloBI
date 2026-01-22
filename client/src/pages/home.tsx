@@ -1561,6 +1561,64 @@ export default function Home() {
     };
   }, [dataInicialDate, dataFinalDate, chamadosPorDia]);
 
+  // Atividade por operador por dia da semana (Dom, Seg, Ter, Qua, Qui, Sex, Sáb)
+  const atividadePorOperadorDiaSemana = useMemo(() => {
+    if (!ticketsDetalhados.length) return [];
+
+    // Preparar datas do filtro
+    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
+    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+
+    // Map: operador -> [dom, seg, ter, qua, qui, sex, sab]
+    const map = new Map<string, number[]>();
+
+    ticketsDetalhados.forEach((t) => {
+      // Ignorar tickets excluídos
+      if (t.ticket_excluido === 'Sim') return;
+
+      // Usar data_solucao (Data da solução) do CSV
+      const dataSolucaoCSV = (t as any).data_solucao;
+      if (!dataSolucaoCSV || dataSolucaoCSV === 'Não possui' || dataSolucaoCSV === '') return;
+
+      // Parsear data_solucao (formato dd/MM/yyyy)
+      let dataTicket: Date | null = null;
+      try {
+        const parts = dataSolucaoCSV.split('/');
+        if (parts.length === 3) {
+          const [day, month, year] = parts.map(Number);
+          dataTicket = new Date(year, month - 1, day);
+          if (!isValid(dataTicket)) dataTicket = null;
+        }
+      } catch {
+        return;
+      }
+
+      if (!dataTicket) return;
+
+      // Aplicar filtro de data
+      if (dataInicialFiltro && dataTicket < startOfDay(dataInicialFiltro)) return;
+      if (dataFinalFiltro && dataTicket > endOfDay(dataFinalFiltro)) return;
+
+      const operador = t.operador || 'Não atribuído';
+      const diaSemana = dataTicket.getDay(); // 0 = Domingo, 6 = Sábado
+
+      if (!map.has(operador)) {
+        map.set(operador, [0, 0, 0, 0, 0, 0, 0]);
+      }
+      const dias = map.get(operador)!;
+      dias[diaSemana] += 1;
+    });
+
+    // Converter para array ordenado por total de chamados
+    return Array.from(map.entries())
+      .map(([operador, dias]) => ({
+        operador,
+        dias,
+        total: dias.reduce((a, b) => a + b, 0),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+
   const tempoMetrics = useMemo(() => {
     if (!ticketsFiltrados.length) {
       return {
@@ -1913,8 +1971,8 @@ export default function Home() {
 
   return (
     <div ref={reportRef} className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div className="flex flex-col gap-3">
+      <div className="flex flex-col xl:flex-row xl:items-start gap-4">
+        <div className="flex flex-col gap-3 flex-shrink-0">
           <div className="flex items-center gap-4">
             <PageHeader
               titulo="Visão Geral"
@@ -1998,106 +2056,159 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex gap-3">
-          {/* Calendário Heatmap de Chamados */}
-          <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px]">
-            <CardContent className="py-3 px-4">
-              <div className="text-xs font-semibold uppercase text-muted-foreground mb-1 text-center">
-                Chamados por Dia
-              </div>
-              <div className="text-[10px] text-muted-foreground/70 mb-2 text-center capitalize">
-                {calendarioData.mes} (Data Solução)
-              </div>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr>
-                    {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((dia, i) => (
-                      <th key={i} className="text-center text-muted-foreground font-normal px-1 py-1">
-                        {dia}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {calendarioData.semanas.map((semana, sIdx) => (
-                    <tr key={sIdx}>
-                      {semana.map((cell, dIdx) => (
-                        <td key={dIdx} className="text-center p-0.5">
-                          {cell.dia !== null ? (
-                            <div
-                              className={cn(
-                                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-all",
-                                cell.quantidade === 0 && "text-muted-foreground/50",
-                                cell.quantidade > 0 && cell.quantidade <= 5 && "bg-blue-500 text-white",
-                                cell.quantidade > 5 && cell.quantidade <= 10 && "bg-blue-600 text-white",
-                                cell.quantidade > 10 && cell.quantidade <= 20 && "bg-orange-500 text-white",
-                                cell.quantidade > 20 && "bg-orange-600 text-white font-bold"
-                              )}
-                              title={`${cell.dia}: ${cell.quantidade} chamados`}
-                            >
-                              {cell.quantidade > 0 ? cell.quantidade : '-'}
-                            </div>
-                          ) : (
-                            <div className="w-6 h-6" />
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Filtro de datas */}
-      <Card className="border-dashed">
-        <CardContent className="py-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4 sm:flex-wrap">
+          {/* Período + Metas */}
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-900/50">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Período</span>
+              <span className="text-[10px] font-semibold uppercase text-muted-foreground">Período</span>
               <DateRangePicker
                 dateRange={dateRange}
                 onDateRangeChange={handleDateRangeChange}
                 placeholder="Selecione o período"
               />
             </div>
-
-            {/* Cards de Tempo (META) */}
-            <div className="flex items-center gap-4 px-5 py-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10">
-              <div className="flex flex-col items-center">
-                <span className="text-xs font-semibold text-emerald-400">META 00:05:00</span>
-                <span className="text-2xl font-mono font-bold text-white">
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col items-center px-3 py-1.5 rounded border border-emerald-500/40 bg-emerald-500/10">
+                <span className="text-[10px] font-semibold text-emerald-400">META 00:05:00</span>
+                <span className="text-lg font-mono font-bold text-white">
                   {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
                 </span>
-                <span className="text-[10px] text-muted-foreground">Tempo médio abertura</span>
+                <span className="text-[9px] text-muted-foreground">Tempo médio abertura</span>
               </div>
-            </div>
-
-            <div className="flex items-center gap-4 px-5 py-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10">
-              <div className="flex flex-col items-center">
-                <span className="text-xs font-semibold text-emerald-400">META 04:00:00</span>
-                <span className="text-2xl font-mono font-bold text-white">
+              <div className="flex flex-col items-center px-3 py-1.5 rounded border border-emerald-500/40 bg-emerald-500/10">
+                <span className="text-[10px] font-semibold text-emerald-400">META 04:00:00</span>
+                <span className="text-lg font-mono font-bold text-white">
                   {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
                 </span>
-                <span className="text-[10px] text-muted-foreground">Tempo médio solução</span>
+                <span className="text-[9px] text-muted-foreground">Tempo médio solução</span>
               </div>
             </div>
+          </div>
+        </div>
 
-            <div className="flex flex-col gap-1 ml-auto">
-              <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1">
+        <div className="flex gap-3 items-start">
+          {/* Atividade por Dia da Semana - Por Operador */}
+          <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px] overflow-hidden">
+              <CardContent className="py-3 px-4">
+                <div className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-orange-500" />
+                  Atividade por Dia da Semana
+                </div>
+                <div className="overflow-hidden">
+                <table className="w-full text-xs table-fixed">
+                  <thead className="sticky top-0 bg-slate-900/90 backdrop-blur-sm">
+                    <tr>
+                      <th className="text-left text-muted-foreground font-medium px-1 py-1 min-w-[80px]">Técnico</th>
+                      {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((dia, i) => (
+                        <th key={i} className="text-center text-muted-foreground font-normal px-1 py-1 w-8">
+                          {dia}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {atividadePorOperadorDiaSemana.map((item, idx) => (
+                      <tr key={idx} className="border-t border-slate-800/50">
+                        <td className="text-left text-slate-300 font-medium px-1 py-1.5 truncate max-w-[100px]" title={item.operador}>
+                          {item.operador.split(' ')[0]}
+                        </td>
+                        {item.dias.map((qtd, dIdx) => (
+                          <td key={dIdx} className="text-center px-0.5 py-1">
+                            {qtd > 0 ? (
+                              <div
+                                className={cn(
+                                  "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium mx-auto",
+                                  qtd <= 2 && "bg-blue-500 text-white",
+                                  qtd > 2 && qtd <= 5 && "bg-blue-600 text-white",
+                                  qtd > 5 && "bg-orange-500 text-white font-bold"
+                                )}
+                                title={`${item.operador}: ${qtd} chamados`}
+                              >
+                                {qtd}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground/40">-</span>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                    {atividadePorOperadorDiaSemana.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-center text-muted-foreground py-4">
+                          Sem dados no período
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Coluna: Calendário + Atualização Automática */}
+          <div className="flex flex-col gap-2">
+            <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px]">
+              <CardContent className="py-3 px-4">
+                <div className="text-xs font-semibold uppercase text-muted-foreground mb-1 text-center">
+                  Chamados por Dia
+                </div>
+                <div className="text-[10px] text-muted-foreground/70 mb-2 text-center capitalize">
+                  {calendarioData.mes} (Data Solução)
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr>
+                      {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((dia, i) => (
+                        <th key={i} className="text-center text-muted-foreground font-normal px-1 py-1">
+                          {dia}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calendarioData.semanas.map((semana, sIdx) => (
+                      <tr key={sIdx}>
+                        {semana.map((cell, dIdx) => (
+                          <td key={dIdx} className="text-center p-0.5">
+                            {cell.dia !== null ? (
+                              <div
+                                className={cn(
+                                  "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-all",
+                                  cell.quantidade === 0 && "text-muted-foreground/50",
+                                  cell.quantidade > 0 && cell.quantidade <= 5 && "bg-blue-500 text-white",
+                                  cell.quantidade > 5 && cell.quantidade <= 10 && "bg-blue-600 text-white",
+                                  cell.quantidade > 10 && cell.quantidade <= 20 && "bg-orange-500 text-white",
+                                  cell.quantidade > 20 && "bg-orange-600 text-white font-bold"
+                                )}
+                                title={`${cell.dia}: ${cell.quantidade} chamados`}
+                              >
+                                {cell.quantidade > 0 ? cell.quantidade : '-'}
+                              </div>
+                            ) : (
+                              <div className="w-6 h-6" />
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+            {/* Atualização Automática */}
+            <div className="flex flex-col gap-1 px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-900/50">
+              <span className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1 justify-center">
                 <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
                 Atualização automática
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 justify-center">
                 <Select
                   value={refreshInterval ? String(refreshInterval) : "off"}
                   onValueChange={handleRefreshChange}
                 >
-                  <SelectTrigger className="sm:w-[180px]">
+                  <SelectTrigger className="w-[100px] h-8 text-xs">
                     <SelectValue placeholder="Desativado" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2119,10 +2230,10 @@ export default function Home() {
                   size="icon"
                   onClick={handleManualRefresh}
                   disabled={isRefreshing}
-                  className="h-9 w-9"
+                  className="h-8 w-8"
                   title="Atualizar agora"
                 >
-                  <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                  <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
                 </Button>
                 <Button
                   variant="outline"
@@ -2136,7 +2247,7 @@ export default function Home() {
                       duration: 5000,
                     });
                   }}
-                  className="h-9 text-xs"
+                  className="h-8 text-xs px-2"
                   title="Testar notificação por voz"
                 >
                   🔊 Testar Voz
@@ -2144,8 +2255,8 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Faixa de KPIs principais */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
