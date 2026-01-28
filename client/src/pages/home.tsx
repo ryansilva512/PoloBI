@@ -422,7 +422,8 @@ export default function Home() {
       const pesquisas = data?.lista || [];
 
       // Calcular ranking por quantidade de pesquisas avaliadas (com nota)
-      const map = new Map<string, number>();
+      // Também calcula a média para usar como critério de desempate
+      const map = new Map<string, { quantidade: number; somaNotas: number }>();
 
       // Preparar datas do filtro
       const dataInicialDate = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
@@ -443,12 +444,25 @@ export default function Home() {
         }
 
         if (p.operador && p.nota && !isNaN(parseFloat(p.nota.replace(',', '.')))) {
-          map.set(p.operador, (map.get(p.operador) || 0) + 1);
+          const nota = parseFloat(p.nota.replace(',', '.'));
+          const atual = map.get(p.operador) || { quantidade: 0, somaNotas: 0 };
+          map.set(p.operador, { quantidade: atual.quantidade + 1, somaNotas: atual.somaNotas + nota });
         }
       });
       const ranking = Array.from(map.entries())
-        .map(([operador, quantidade]) => ({ operador, quantidade }))
-        .sort((a, b) => b.quantidade - a.quantidade)
+        .map(([operador, data]) => ({
+          operador,
+          quantidade: data.quantidade,
+          media: data.quantidade > 0 ? data.somaNotas / data.quantidade : 0,
+        }))
+        .sort((a, b) => {
+          // 1º critério: quantidade (maior primeiro)
+          if (b.quantidade !== a.quantidade) return b.quantidade - a.quantidade;
+          // 2º critério (desempate): média das notas (maior primeiro)
+          if (b.media !== a.media) return b.media - a.media;
+          // 3º critério (desempate final): ordem alfabética
+          return a.operador.localeCompare(b.operador);
+        })
         .slice(0, 3);
       setRankingPesquisas(ranking);
     } catch (e) {
@@ -1466,24 +1480,24 @@ export default function Home() {
 
     // DEBUG: Mostrar no console para investigar
     const totalNoCalendario = Array.from(map.values()).reduce((a, b) => a + b, 0);
-    
+
     // Identificar tickets finalizados em finais de semana
     const ticketsFimDeSemana: { ticket: string; data: string; diaSemana: string }[] = [];
     ticketsDetalhados.forEach((t) => {
       if (t.ticket_excluido === 'Sim') return;
       const dataSolucaoCSV = (t as any).data_solucao;
       if (!dataSolucaoCSV || dataSolucaoCSV === 'Não possui' || dataSolucaoCSV === '') return;
-      
+
       const parts = dataSolucaoCSV.split('/');
       if (parts.length !== 3) return;
       const [day, month, year] = parts.map(Number);
       const dataTicket = new Date(year, month - 1, day);
       if (!isValid(dataTicket)) return;
-      
+
       // Aplicar filtro de data
       if (dataInicialFiltro && dataTicket < startOfDay(dataInicialFiltro)) return;
       if (dataFinalFiltro && dataTicket > endOfDay(dataFinalFiltro)) return;
-      
+
       const diaSemana = dataTicket.getDay(); // 0 = Domingo, 6 = Sábado
       if (diaSemana === 0 || diaSemana === 6) {
         const diasNome = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -1494,7 +1508,7 @@ export default function Home() {
         });
       }
     });
-    
+
     console.log('📊 DEBUG Calendário (CSV):', {
       ticketsDetalhadosTotal: ticketsDetalhados.length,
       ticketsContados,
@@ -1503,7 +1517,7 @@ export default function Home() {
       diasComTickets: map.size,
       detalhePorDia: Object.fromEntries(map)
     });
-    
+
     if (ticketsFimDeSemana.length > 0) {
       console.log('⚠️ TICKETS FINALIZADOS EM FINAIS DE SEMANA:', ticketsFimDeSemana);
     }
@@ -2089,12 +2103,12 @@ export default function Home() {
         <div className="flex gap-3 items-start">
           {/* Atividade por Dia da Semana - Por Operador */}
           <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px] overflow-hidden">
-              <CardContent className="py-3 px-4">
-                <div className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-orange-500" />
-                  Atividade por Dia da Semana
-                </div>
-                <div className="overflow-hidden">
+            <CardContent className="py-3 px-4">
+              <div className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                <Activity className="h-4 w-4 text-orange-500" />
+                Atividade por Dia da Semana
+              </div>
+              <div className="overflow-hidden">
                 <table className="w-full text-xs table-fixed">
                   <thead className="sticky top-0 bg-slate-900/90 backdrop-blur-sm">
                     <tr>
