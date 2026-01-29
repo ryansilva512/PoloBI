@@ -1920,45 +1920,50 @@ export default function Home() {
       titulo: "Tickets Finalizados",
       valor: aggregatedData.totalTickets.toLocaleString("pt-BR"),
       detalhe: "",
-      icon: <Phone className="h-5 w-5 text-emerald-400" />,
-      className: "bg-emerald-500/10 border-emerald-500/40",
+      icon: <Phone className="h-6 w-6 text-emerald-400 icon-glow" />,
+      className: "glass glow-emerald",
+      valueColor: "text-emerald-400",
     },
     {
       titulo: "Qtd Resposta em Dia",
       valor: (aggregatedData.totalTickets - metricasSLAMilvus.respostaEstourada).toLocaleString("pt-BR"),
       detalhe: aggregatedData.totalTickets
-        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.respostaEstourada) / aggregatedData.totalTickets) * 100).toFixed(2)}%`
+        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.respostaEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
         : "0%",
-      icon: <Timer className="h-5 w-5 text-sky-300" />,
-      className: "bg-slate-500/10 border-slate-400/40",
+      icon: <Timer className="h-6 w-6 text-sky-400 icon-glow" />,
+      className: "glass glow-blue",
+      valueColor: "text-sky-400",
     },
     {
       titulo: "Qtd Atendimento em Dia",
       valor: (aggregatedData.totalTickets - metricasSLAMilvus.solucaoEstourada).toLocaleString("pt-BR"),
       detalhe: aggregatedData.totalTickets
-        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.solucaoEstourada) / aggregatedData.totalTickets) * 100).toFixed(2)}%`
+        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.solucaoEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
         : "0%",
-      icon: <Clock4 className="h-5 w-5 text-emerald-300" />,
-      className: "bg-slate-500/10 border-slate-400/40",
+      icon: <Clock4 className="h-6 w-6 text-emerald-400 icon-glow" />,
+      className: "glass glow-emerald",
+      valueColor: "text-emerald-400",
     },
     {
       titulo: "Qtd Resposta Estourada",
       valor: metricasSLAMilvus.respostaEstourada.toLocaleString("pt-BR"),
       detalhe: metricasSLAMilvus.totalComSLAResposta
-        ? `${((metricasSLAMilvus.respostaEstourada / metricasSLAMilvus.totalComSLAResposta) * 100).toFixed(2)}%`
+        ? `${((metricasSLAMilvus.respostaEstourada / metricasSLAMilvus.totalComSLAResposta) * 100).toFixed(1)}%`
         : "0%",
-      icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
-      className: "bg-red-500/10 border-red-500/40",
+      icon: <AlertTriangle className="h-6 w-6 text-red-400 icon-glow" />,
+      className: "glass glow-red",
+      valueColor: "text-red-400",
       link: "/registros-expirados?tab=resposta",
     },
     {
       titulo: "Qtd Atendimento Expirado",
       valor: metricasSLAMilvus.solucaoEstourada.toLocaleString("pt-BR"),
       detalhe: metricasSLAMilvus.totalComSLASolucao
-        ? `${((metricasSLAMilvus.solucaoEstourada / metricasSLAMilvus.totalComSLASolucao) * 100).toFixed(2)}%`
+        ? `${((metricasSLAMilvus.solucaoEstourada / metricasSLAMilvus.totalComSLASolucao) * 100).toFixed(1)}%`
         : "0%",
-      icon: <AlertTriangle className="h-5 w-5 text-red-400" />,
-      className: "bg-red-600/10 border-red-500/50",
+      icon: <AlertTriangle className="h-6 w-6 text-red-400 icon-glow" />,
+      className: "glass glow-red",
+      valueColor: "text-red-400",
       link: "/registros-expirados?tab=atendimento",
     },
   ];
@@ -2015,86 +2020,127 @@ export default function Home() {
 
           {/* Widget Top 3 Pesquisas (abaixo do título) */}
           {rankingPesquisas.length > 0 && (
-            <div className="flex items-center gap-10 bg-slate-900/60 py-3 px-8 rounded-xl border border-yellow-500/20 shadow-lg shadow-yellow-500/5 backdrop-blur-md">
-              <div className="text-sm font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-2 px-2 border-r border-slate-700/50">
-                <Trophy className="h-5 w-5" /> Top Avaliados
-              </div>
-              <div className="flex items-center gap-8 pr-2">
-                {rankingPesquisas.map((item, idx) => (
-                  <div key={item.operador} className="flex items-center gap-4">
-                    <div className="relative">
-                      <Avatar className={cn("border-2 border-slate-900 ring-2 ring-offset-2 ring-offset-slate-950",
-                        idx === 0 ? "h-14 w-14 ring-yellow-500" :
-                          idx === 1 ? "h-12 w-12 ring-slate-400" :
-                            "h-12 w-12 ring-amber-700"
-                      )}>
-                        <AvatarImage src={getAvatarSrc(item.operador)} alt={item.operador} />
-                        <AvatarFallback className="text-xs bg-yellow-950 text-yellow-500 font-bold">
-                          {item.operador.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    </div>
-                    <div className="flex flex-col leading-none gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className={cn("font-bold text-slate-200 flex items-center gap-1.5", idx === 0 ? "text-base text-yellow-100" : "text-sm")}>
-                          {idx === 0 && <Trophy className="h-4 w-4 text-yellow-500 fill-yellow-500/20" />}
-                          {idx === 1 && <Medal className="h-4 w-4 text-slate-400 fill-slate-400/20" />}
-                          {idx === 2 && <Medal className="h-4 w-4 text-amber-700 fill-amber-700/20" />}
+            <div className="glass glow-amber rounded-2xl p-1 animate-fade-in">
+              <div className="flex items-center gap-6 py-4 px-6">
+                <div className="flex items-center gap-3 pr-6 border-r border-yellow-500/20">
+                  <div className="p-2 rounded-xl bg-yellow-500/20">
+                    <Trophy className="h-6 w-6 text-yellow-400 icon-glow" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-yellow-400 uppercase tracking-wider">Top Avaliados</span>
+                    <p className="text-xs text-slate-400">Pesquisa de Satisfação</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-8">
+                  {rankingPesquisas.map((item, idx) => (
+                    <div key={item.operador} className={cn(
+                      "flex items-center gap-4 p-3 rounded-xl transition-all",
+                      idx === 0 && "bg-yellow-500/10 shimmer"
+                    )}>
+                      <div className="relative">
+                        <Avatar className={cn(
+                          "border-3 shadow-lg",
+                          idx === 0 ? "h-16 w-16 ring-4 ring-yellow-500/50 ring-offset-2 ring-offset-slate-900" :
+                            idx === 1 ? "h-14 w-14 ring-2 ring-slate-400/50 ring-offset-1 ring-offset-slate-900" :
+                              "h-14 w-14 ring-2 ring-amber-700/50 ring-offset-1 ring-offset-slate-900"
+                        )}>
+                          <AvatarImage src={getAvatarSrc(item.operador)} alt={item.operador} />
+                          <AvatarFallback className={cn(
+                            "font-bold",
+                            idx === 0 ? "bg-gradient-to-br from-yellow-600 to-amber-700 text-yellow-100" :
+                              idx === 1 ? "bg-gradient-to-br from-slate-500 to-slate-600 text-slate-100" :
+                                "bg-gradient-to-br from-amber-700 to-amber-800 text-amber-100"
+                          )}>
+                            {item.operador.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className={cn(
+                          "absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shadow-lg",
+                          idx === 0 ? "bg-yellow-500 text-yellow-950" :
+                            idx === 1 ? "bg-slate-400 text-slate-900" :
+                              "bg-amber-700 text-amber-100"
+                        )}>
+                          {idx + 1}º
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className={cn(
+                          "font-bold flex items-center gap-2",
+                          idx === 0 ? "text-lg text-yellow-300" : "text-base text-slate-200"
+                        )}>
+                          {idx === 0 && <Trophy className="h-5 w-5 text-yellow-400 fill-yellow-400/30" />}
+                          {idx === 1 && <Medal className="h-4 w-4 text-slate-400 fill-slate-400/30" />}
+                          {idx === 2 && <Medal className="h-4 w-4 text-amber-600 fill-amber-600/30" />}
                           {item.operador.split(' ')[0]}
                         </span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "text-2xl font-bold",
+                            idx === 0 ? "text-yellow-400" : idx === 1 ? "text-slate-300" : "text-amber-500"
+                          )}>
+                            {item.quantidade}
+                          </span>
+                          <span className="text-xs text-slate-400">avaliações</span>
+                        </div>
                       </div>
-                      <span className="text-xs text-muted-foreground font-medium bg-slate-800/80 px-2 py-0.5 rounded-full w-fit whitespace-nowrap">
-                        {item.quantidade} <span className="inline">avaliações</span>
-                      </span>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
           {/* Card de Chamados Ativos - movido para cá */}
-          <div className="flex items-center justify-between px-6 py-3 rounded-lg border border-emerald-500/50 bg-slate-900/60 min-w-[300px]">
-            <div className="flex items-center gap-4">
-              <span className="text-xs font-semibold uppercase text-emerald-400 tracking-wider">Chamados Ativos</span>
-              <span className="text-4xl font-bold text-white">{openTicketsCount}</span>
-            </div>
-            <div className="flex flex-col gap-1 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="text-emerald-400">{chamadosAtivos.filter((c: any) => c.status === 'Atendendo').length} atendendo</span>
+          <div className="glass glow-emerald rounded-2xl px-6 py-4 min-w-[320px] animate-fade-in-delay-1">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase text-emerald-400 tracking-wider flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 pulse-ring" />
+                  Chamados Ativos
+                </span>
+                <span className="text-5xl font-bold text-white number-highlight">{openTicketsCount}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
-                <span className="text-yellow-400">{chamadosAtivos.filter((c: any) => c.status === 'Pausado').length} pausado</span>
+              <div className="flex flex-col gap-2 text-sm">
+                <div className="flex items-center gap-3 bg-emerald-500/20 px-3 py-1.5 rounded-lg">
+                  <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-emerald-300 font-medium">{chamadosAtivos.filter((c: any) => c.status === 'Atendendo').length}</span>
+                  <span className="text-emerald-400/70 text-xs">atendendo</span>
+                </div>
+                <div className="flex items-center gap-3 bg-yellow-500/20 px-3 py-1.5 rounded-lg">
+                  <span className="w-3 h-3 rounded-full bg-yellow-500" />
+                  <span className="text-yellow-300 font-medium">{chamadosAtivos.filter((c: any) => c.status === 'Pausado').length}</span>
+                  <span className="text-yellow-400/70 text-xs">pausado</span>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Período + Metas */}
-          <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-900/50">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase text-muted-foreground">Período</span>
-              <DateRangePicker
-                dateRange={dateRange}
-                onDateRangeChange={handleDateRangeChange}
-                placeholder="Selecione o período"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex flex-col items-center px-3 py-1.5 rounded border border-emerald-500/40 bg-emerald-500/10">
-                <span className="text-[10px] font-semibold text-emerald-400">META 00:05:00</span>
-                <span className="text-lg font-mono font-bold text-white">
-                  {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
-                </span>
-                <span className="text-[9px] text-muted-foreground">Tempo médio abertura</span>
+          <div className="glass-subtle rounded-2xl px-4 py-3 animate-fade-in-delay-2">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">Período</span>
+                <DateRangePicker
+                  dateRange={dateRange}
+                  onDateRangeChange={handleDateRangeChange}
+                  placeholder="Selecione o período"
+                />
               </div>
-              <div className="flex flex-col items-center px-3 py-1.5 rounded border border-emerald-500/40 bg-emerald-500/10">
-                <span className="text-[10px] font-semibold text-emerald-400">META 04:00:00</span>
-                <span className="text-lg font-mono font-bold text-white">
-                  {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
-                </span>
-                <span className="text-[9px] text-muted-foreground">Tempo médio solução</span>
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col items-center px-4 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10">
+                  <span className="text-[10px] font-semibold text-blue-400 tracking-wide">META 00:05:00</span>
+                  <span className="text-xl font-mono font-bold text-blue-300">
+                    {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
+                  </span>
+                  <span className="text-[9px] text-slate-400">Tempo médio abertura</span>
+                </div>
+                <div className="flex flex-col items-center px-4 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10">
+                  <span className="text-[10px] font-semibold text-emerald-400 tracking-wide">META 04:00:00</span>
+                  <span className="text-xl font-mono font-bold text-emerald-300">
+                    {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
+                  </span>
+                  <span className="text-[9px] text-slate-400">Tempo médio solução</span>
+                </div>
               </div>
             </div>
           </div>
@@ -2273,27 +2319,45 @@ export default function Home() {
       </div>
 
       {/* Faixa de KPIs principais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-        {kpiCards.map((card) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        {kpiCards.map((card, index) => (
           <Card
             key={card.titulo}
             className={cn(
-              "rounded-md shadow-sm border bg-gradient-to-br from-background via-background to-background",
+              "rounded-xl border-0 hover-lift overflow-hidden",
               card.className,
-              card.link && "cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all"
+              card.link && "cursor-pointer",
+              index === 0 && "animate-fade-in",
+              index === 1 && "animate-fade-in-delay-1",
+              index === 2 && "animate-fade-in-delay-2",
+              index === 3 && "animate-fade-in-delay-3",
+              index === 4 && "animate-fade-in-delay-3"
             )}
             onClick={() => card.link && setLocation(card.link)}
           >
-            <CardContent className="p-4 space-y-1">
-              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <span>{card.titulo}</span>
-                {card.icon}
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{card.titulo}</span>
+                <div className="p-2 rounded-lg bg-white/5">
+                  {card.icon}
+                </div>
               </div>
-              <div className="text-3xl font-mono font-bold leading-tight">
+              <div className={cn("text-4xl font-bold leading-none tracking-tight", card.valueColor || "text-white")}>
                 {card.valor}
               </div>
               {card.detalhe && (
-                <div className="text-sm text-muted-foreground">{card.detalhe}</div>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full transition-all duration-500",
+                        card.valueColor?.includes("red") ? "bg-red-500" :
+                          card.valueColor?.includes("sky") ? "bg-sky-500" : "bg-emerald-500"
+                      )}
+                      style={{ width: card.detalhe }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-slate-300">{card.detalhe}</span>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -2304,36 +2368,47 @@ export default function Home() {
 
       {/* Gráficos de tempo médio + top operadores */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Timer className="h-4 w-4 text-foreground/80" />
-              Tempo Médio de Resposta
+        <Card className="glass glow-blue border-0 overflow-hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-sky-500/20">
+                <Timer className="h-5 w-5 text-blue-400 icon-glow" />
+              </div>
+              <span className="font-bold">Tempo Médio de Resposta</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm text-muted-foreground">
-              Meta: {formatMinutosCompleto(META_RESPOSTA_MINUTOS)} • Atual:{" "}
-              {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-4 p-3 rounded-xl bg-white/5">
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase text-slate-400 tracking-wider">Meta</span>
+                <span className="text-lg font-mono font-bold text-blue-400">{formatMinutosCompleto(META_RESPOSTA_MINUTOS)}</span>
+              </div>
+              <div className="w-px h-10 bg-slate-600" />
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase text-slate-400 tracking-wider">Atual</span>
+                <span className="text-lg font-mono font-bold text-white">{formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}</span>
+              </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {tempoRespostaPorOperadorCSV.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
-              {tempoRespostaPorOperadorCSV.slice(0, 8).map((op) => {
+              {tempoRespostaPorOperadorCSV.slice(0, 8).map((op, idx) => {
                 const maxValor = tempoRespostaPorOperadorCSV[0]?.tempoMedioMinutos || 1;
                 const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
 
-                // Buscar dados do ranking para este operador
                 const rankingData = rankingOperadores.find(r => r.nome === op.nome);
                 const totalTickets = rankingData?.total || 0;
                 const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
 
                 return (
-                  <div key={op.nome} className="space-y-1">
+                  <div key={op.nome} className="space-y-1.5 group">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{op.nome}</span>
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span className="font-semibold text-slate-200 flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold flex items-center justify-center">{idx + 1}</span>
+                        {op.nome}
+                      </span>
+                      <span className="font-mono text-sm text-blue-300 font-semibold">
                         {formatMinutosCompleto(op.tempoMedioMinutos)}
                       </span>
                     </div>
@@ -2347,8 +2422,12 @@ export default function Home() {
                               setLocation('/operacional');
                             }}
                           >
-                            <Progress value={value} className="h-2 transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-blue-500/30" />
-                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/20 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
+                            <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 rounded-full transition-all duration-500 group-hover:shadow-lg group-hover:shadow-blue-500/40"
+                                style={{ width: `${value}%` }}
+                              />
+                            </div>
                           </div>
                         </TooltipTrigger>
                         <TooltipContent
@@ -2402,39 +2481,47 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock4 className="h-4 w-4 text-foreground/80" />
-              Tempo Médio de Atendimento
+        <Card className="glass glow-emerald border-0 overflow-hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-teal-500/20">
+                <Clock4 className="h-5 w-5 text-emerald-400 icon-glow" />
+              </div>
+              <span className="font-bold">Tempo Médio de Atendimento</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm text-muted-foreground">
-              Meta: {formatMinutosCompleto(META_ATENDIMENTO_HORAS * 60)} • Atual:{" "}
-              {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-4 p-3 rounded-xl bg-white/5">
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase text-slate-400 tracking-wider">Meta</span>
+                <span className="text-lg font-mono font-bold text-emerald-400">{formatMinutosCompleto(META_ATENDIMENTO_HORAS * 60)}</span>
+              </div>
+              <div className="w-px h-10 bg-slate-600" />
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase text-slate-400 tracking-wider">Atual</span>
+                <span className="text-lg font-mono font-bold text-white">{formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}</span>
+              </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {tempoAtendimentoPorOperadorCSV.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
-              {tempoAtendimentoPorOperadorCSV.slice(0, 8).map((op) => {
-                const maxValor =
-                  tempoAtendimentoPorOperadorCSV[0]?.tempoMedioAtendimentoMinutos || 1;
-                const value = maxValor
-                  ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100
-                  : 0;
+              {tempoAtendimentoPorOperadorCSV.slice(0, 8).map((op, idx) => {
+                const maxValor = tempoAtendimentoPorOperadorCSV[0]?.tempoMedioAtendimentoMinutos || 1;
+                const value = maxValor ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100 : 0;
 
-                // Buscar dados do ranking para este operador
                 const rankingData = rankingOperadores.find(r => r.nome === op.nome);
                 const totalTickets = rankingData?.total || 0;
                 const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
 
                 return (
-                  <div key={op.nome} className="space-y-1">
+                  <div key={op.nome} className="space-y-1.5 group">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{op.nome}</span>
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span className="font-semibold text-slate-200 flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold flex items-center justify-center">{idx + 1}</span>
+                        {op.nome}
+                      </span>
+                      <span className="font-mono text-sm text-emerald-300 font-semibold">
                         {formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}
                       </span>
                     </div>
@@ -2445,11 +2532,15 @@ export default function Home() {
                             className="group relative cursor-pointer"
                             onClick={() => {
                               updateFilters({ analista: op.nome });
-                              window.location.href = '/operacional';
+                              setLocation('/operacional');
                             }}
                           >
-                            <Progress value={value} className="h-2 bg-muted transition-all duration-300 group-hover:h-3 group-hover:shadow-lg group-hover:shadow-emerald-500/30" />
-                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/20 to-emerald-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
+                            <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 rounded-full transition-all duration-500 group-hover:shadow-lg group-hover:shadow-emerald-500/40"
+                                style={{ width: `${value}%` }}
+                              />
+                            </div>
                           </div>
                         </TooltipTrigger>
                         <TooltipContent
@@ -2503,14 +2594,16 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/70 border border-border/70 shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-foreground/80" />
-              Top 4 Operadores
+        <Card className="glass border-0 overflow-hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20">
+                <Activity className="h-5 w-5 text-blue-400" />
+              </div>
+              <span className="gradient-text font-bold">Top 4 Operadores</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             {topOperadores.length === 0 && (
               <p className="text-sm text-muted-foreground">Sem dados no período.</p>
             )}
@@ -2519,44 +2612,53 @@ export default function Home() {
               const isFirst = idx === 0;
               const isSecond = idx === 1;
               const isThird = idx === 2;
-              const trophy = isFirst ? "🏆" : isSecond ? "🥈" : isThird ? "🥉" : null;
-              const sizeClass = isFirst ? "h-12 w-12" : "h-10 w-10";
               return (
                 <div
                   key={op.nome}
                   className={cn(
-                    "flex items-center justify-between rounded-md border border-border/60 px-3 py-2 transition",
-                    isFirst
-                      ? "bg-amber-50/5 border-amber-500/50 ring-1 ring-amber-500/60 scale-[1.02]"
-                      : "",
-                    isSecond ? "border-slate-500/40" : "",
-                    isThird ? "border-amber-700/30" : ""
+                    "flex items-center justify-between rounded-xl px-4 py-3 transition-all",
+                    isFirst && "bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-transparent border border-amber-500/30 shimmer",
+                    isSecond && "bg-slate-500/10 border border-slate-500/20",
+                    isThird && "bg-amber-700/10 border border-amber-700/20",
+                    idx === 3 && "bg-white/5 border border-white/10"
                   )}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="text-xs font-semibold text-muted-foreground">#{idx + 1}</div>
-                    <Avatar className={sizeClass}>
+                  <div className="flex items-center gap-4">
+                    <div className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
+                      isFirst && "bg-gradient-to-br from-yellow-400 to-amber-500 text-yellow-950",
+                      isSecond && "bg-gradient-to-br from-slate-300 to-slate-400 text-slate-900",
+                      isThird && "bg-gradient-to-br from-amber-600 to-amber-700 text-amber-100",
+                      idx === 3 && "bg-slate-700 text-slate-300"
+                    )}>
+                      {idx + 1}
+                    </div>
+                    <Avatar className={cn(
+                      "border-2 shadow-lg",
+                      isFirst ? "h-14 w-14 ring-2 ring-yellow-500/50" : "h-12 w-12",
+                      isSecond && "ring-1 ring-slate-400/30",
+                      isThird && "ring-1 ring-amber-600/30"
+                    )}>
                       {avatarSrc ? <AvatarImage src={avatarSrc} alt={op.nome} /> : null}
-                      <AvatarFallback>{op.nome.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      <AvatarFallback className={cn(
+                        "font-bold",
+                        isFirst && "bg-gradient-to-br from-yellow-600 to-amber-700 text-yellow-100"
+                      )}>
+                        {op.nome.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
                     </Avatar>
-                    <div className="flex items-center gap-2">
-                      {trophy && (
-                        <span className={cn("text-lg", isFirst ? "text-amber-400" : isSecond ? "text-slate-300" : "text-amber-700")} role="img" aria-label="trofeu">
-                          {trophy}
-                        </span>
-                      )}
-                      <div>
-                        <div
-                          className={cn(
-                            "leading-tight",
-                            isFirst ? "font-semibold text-amber-200 text-base" : "font-semibold"
-                          )}
-                        >
-                          {op.nome}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {op.total} chamados • {op.mediaDiaria.toFixed(2)} / dia
-                        </div>
+                    <div>
+                      <div className={cn(
+                        "font-bold flex items-center gap-2",
+                        isFirst ? "text-lg text-yellow-300" : "text-base text-slate-200"
+                      )}>
+                        {isFirst && <Trophy className="h-5 w-5 text-yellow-400" />}
+                        {isSecond && <Medal className="h-4 w-4 text-slate-400" />}
+                        {isThird && <Medal className="h-4 w-4 text-amber-600" />}
+                        {op.nome}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        <span className="font-semibold text-slate-300">{op.total}</span> chamados • <span className="font-semibold text-slate-300">{op.mediaDiaria.toFixed(2)}</span>/dia
                       </div>
                     </div>
                   </div>
@@ -2570,13 +2672,15 @@ export default function Home() {
       </div>
 
       {/* Chamados Ativos (Atendendo + Pausado) */}
-      <Card className="border-2 border-green-500/30">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-green-500" />
-            Chamados Ativos por Operador
-            <span className="ml-2 text-sm font-normal text-muted-foreground">
-              ({chamadosAtivos.length} chamados em andamento)
+      <Card className="glass glow-emerald border-0 overflow-hidden">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-green-500/20 pulse-ring">
+              <Activity className="h-5 w-5 text-emerald-400" />
+            </div>
+            <span className="font-bold text-lg">Chamados Ativos por Operador</span>
+            <span className="ml-auto px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-sm font-medium">
+              {chamadosAtivos.length} em andamento
             </span>
           </CardTitle>
         </CardHeader>
@@ -2586,71 +2690,78 @@ export default function Home() {
               Nenhum chamado ativo no momento.
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Operador</TableHead>
-                  <TableHead>Avatar</TableHead>
-                  <TableHead className="text-center">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="w-3 h-3 rounded-full bg-green-500"></span>
-                      Atendendo
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-center">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
-                      Pausado
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-center">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rankingChamadosAtivos.map((op) => (
-                  <TableRow
-                    key={op.nome}
-                    className="cursor-pointer hover:bg-green-500/10 transition-colors"
-                    onClick={() => {
-                      updateFilters({ analista: op.nome });
-                      // Passar status na URL para filtrar na página de destino
-                      setLocation(`/operacional?status=Atendendo,Pausado`);
-                    }}
-                  >
-                    <TableCell className="font-medium">{op.nome}</TableCell>
-                    <TableCell>
-                      <Avatar className="h-10 w-10 border border-border/80">
-                        <AvatarImage src={getAvatarSrc(op.nome)} alt={op.nome} />
-                        <AvatarFallback className="bg-muted text-foreground">
-                          {op.nome.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {op.atendendo > 0 ? (
-                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-green-500 text-white font-bold text-sm">
-                          {op.atendendo}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {op.pausado > 0 ? (
-                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-yellow-500 text-black font-bold text-sm">
-                          {op.pausado}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center font-mono text-sm font-bold">
-                      {op.total}
-                    </TableCell>
+            <div className="rounded-xl overflow-hidden border border-white/5">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-white/5 hover:bg-white/5 border-b border-white/10">
+                    <TableHead className="text-slate-300 font-semibold">Operador</TableHead>
+                    <TableHead className="text-slate-300 font-semibold">Avatar</TableHead>
+                    <TableHead className="text-center text-slate-300 font-semibold">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                        Atendendo
+                      </span>
+                    </TableHead>
+                    <TableHead className="text-center text-slate-300 font-semibold">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-yellow-500" />
+                        Pausado
+                      </span>
+                    </TableHead>
+                    <TableHead className="text-center text-slate-300 font-semibold">Total</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {rankingChamadosAtivos.map((op, idx) => (
+                    <TableRow
+                      key={op.nome}
+                      className={cn(
+                        "cursor-pointer transition-all border-b border-white/5",
+                        "hover:bg-gradient-to-r hover:from-emerald-500/10 hover:to-transparent",
+                        idx % 2 === 0 && "bg-white/[0.02]"
+                      )}
+                      onClick={() => {
+                        updateFilters({ analista: op.nome });
+                        setLocation(`/operacional?status=Atendendo,Pausado`);
+                      }}
+                    >
+                      <TableCell className="font-semibold text-slate-200">{op.nome}</TableCell>
+                      <TableCell>
+                        <Avatar className="h-11 w-11 border-2 border-emerald-500/30 shadow-lg">
+                          <AvatarImage src={getAvatarSrc(op.nome)} alt={op.nome} />
+                          <AvatarFallback className="bg-gradient-to-br from-emerald-600 to-green-700 text-white font-bold">
+                            {op.nome.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {op.atendendo > 0 ? (
+                          <span className="inline-flex items-center justify-center min-w-[2.5rem] px-3 py-1.5 rounded-full bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/30">
+                            {op.atendendo}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {op.pausado > 0 ? (
+                          <span className="inline-flex items-center justify-center min-w-[2.5rem] px-3 py-1.5 rounded-full bg-gradient-to-r from-yellow-500 to-amber-500 text-yellow-950 font-bold text-sm shadow-lg shadow-yellow-500/30">
+                            {op.pausado}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-mono text-lg font-bold text-white">
+                          {op.total}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
