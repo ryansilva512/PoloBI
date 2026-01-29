@@ -269,39 +269,39 @@ export default function PesquisaSatisfacao() {
             />
 
             {/* Filtros */}
-            <Card className="border-dashed">
-                <CardContent className="flex flex-wrap gap-4 py-4">
-                    <div className="space-y-1">
-                        <label className="text-xs font-semibold uppercase text-muted-foreground">
+            <Card className="glass-subtle border-0 rounded-2xl">
+                <CardContent className="flex flex-wrap items-end gap-4 py-4 px-6">
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Data Inicial
                         </label>
                         <Input
                             type="date"
                             value={dataInicialDate ? format(dataInicialDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("start", e.target.value)}
-                            className="w-40"
+                            className="w-40 bg-white/5 border-white/10 focus:border-blue-500/50"
                         />
                     </div>
-                    <div className="space-y-1">
-                        <label className="text-xs font-semibold uppercase text-muted-foreground">
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Data Final
                         </label>
                         <Input
                             type="date"
                             value={dataFinalDate ? format(dataFinalDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("end", e.target.value)}
-                            className="w-40"
+                            className="w-40 bg-white/5 border-white/10 focus:border-blue-500/50"
                         />
                     </div>
-                    <div className="space-y-1">
-                        <label className="text-xs font-semibold uppercase text-muted-foreground">
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Analista
                         </label>
                         <Select
                             value={analistaFiltro || "todos"}
                             onValueChange={(v) => setAnalistaFiltro(v === "todos" ? undefined : v)}
                         >
-                            <SelectTrigger className="w-40">
+                            <SelectTrigger className="w-40 bg-white/5 border-white/10">
                                 <SelectValue placeholder="Todos" />
                             </SelectTrigger>
                             <SelectContent>
@@ -314,80 +314,99 @@ export default function PesquisaSatisfacao() {
                             </SelectContent>
                         </Select>
                     </div>
-                    <div className="flex items-end">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setAnalistaFiltro(undefined)}
-                        >
-                            Limpar filtros
-                        </Button>
-                    </div>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setAnalistaFiltro(undefined)}
+                        className="text-slate-400 hover:text-white hover:bg-white/10"
+                    >
+                        Limpar filtros
+                    </Button>
                 </CardContent>
             </Card>
 
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {/* Pesquisas Enviadas */}
-                <Card className="relative overflow-hidden border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-500/10 to-blue-500/5">
-                    <CardContent className="py-4 px-5">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2.5 rounded-xl bg-blue-500/20 ring-2 ring-blue-500/30">
-                                <Send className="h-5 w-5 text-blue-500" />
+                <Card className="glass glow-blue border-0 rounded-2xl overflow-hidden animate-fade-in hover-lift">
+                    <CardContent className="py-5 px-6">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500/20 to-sky-500/20 ring-2 ring-blue-500/30">
+                                <Send className="h-6 w-6 text-blue-400" />
                             </div>
                             <div>
-                                <p className="text-3xl font-bold font-mono text-blue-500">{metricas.enviadas}</p>
-                                <p className="text-xs font-medium text-muted-foreground">Pesquisas Enviadas</p>
+                                <p className="text-4xl font-bold font-mono text-blue-400 number-highlight">{metricas.enviadas}</p>
+                                <p className="text-xs font-medium text-slate-400 mt-1">Pesquisas Enviadas</p>
                             </div>
                         </div>
                     </CardContent>
                 </Card>
 
                 {/* Pesquisas Respondidas */}
-                <Card className="relative overflow-hidden border-l-4 border-l-green-500 bg-gradient-to-br from-green-500/10 to-green-500/5">
-                    <CardContent className="py-4 px-5">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2.5 rounded-xl bg-green-500/20 ring-2 ring-green-500/30">
-                                <MessageSquare className="h-5 w-5 text-green-500" />
+                <Card className="glass glow-emerald border-0 rounded-2xl overflow-hidden animate-fade-in-delay-1 hover-lift">
+                    <CardContent className="py-5 px-6">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-500/20 to-green-500/20 ring-2 ring-emerald-500/30">
+                                <MessageSquare className="h-6 w-6 text-emerald-400" />
                             </div>
                             <div>
-                                <p className="text-3xl font-bold font-mono text-green-500">{metricas.respondidas}</p>
-                                <p className="text-xs font-medium text-muted-foreground">Pesquisas Respondidas</p>
+                                <p className="text-4xl font-bold font-mono text-emerald-400 number-highlight">{metricas.respondidas}</p>
+                                <p className="text-xs font-medium text-slate-400 mt-1">Pesquisas Respondidas</p>
                             </div>
                         </div>
                     </CardContent>
                 </Card>
 
                 {/* % Respondidas */}
-                <Card className="relative overflow-hidden border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-500/10 to-purple-500/5">
-                    <CardContent className="py-4 px-5">
-                        <div className="space-y-2">
+                <Card className="glass border-0 rounded-2xl overflow-hidden animate-fade-in-delay-2 hover-lift">
+                    <CardContent className="py-5 px-6">
+                        <div className="space-y-3">
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <div className="p-2 rounded-xl bg-purple-500/20 ring-2 ring-purple-500/30">
-                                        <Percent className="h-4 w-4 text-purple-500" />
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500/20 to-violet-500/20 ring-2 ring-purple-500/30">
+                                        <Percent className="h-5 w-5 text-purple-400" />
                                     </div>
-                                    <span className="text-xs font-medium text-muted-foreground">% Respondidas</span>
+                                    <span className="text-xs font-medium text-slate-400">% Respondidas</span>
                                 </div>
-                                <span className="text-lg font-bold font-mono text-purple-500">
+                                <span className="text-2xl font-bold font-mono text-purple-400">
                                     {metricas.percentualRespondidas.toFixed(1)}%
                                 </span>
                             </div>
-                            <Progress value={metricas.percentualRespondidas} className="h-2" />
+                            <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-gradient-to-r from-purple-600 via-purple-500 to-violet-400 rounded-full transition-all duration-700"
+                                    style={{ width: `${metricas.percentualRespondidas}%` }}
+                                />
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
 
                 {/* Média de Notas */}
-                <Card className="relative overflow-hidden border-l-4 border-l-yellow-500 bg-gradient-to-br from-yellow-500/10 to-yellow-500/5">
-                    <CardContent className="py-4 px-5">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2.5 rounded-xl bg-yellow-500/20 ring-2 ring-yellow-500/30">
-                                <Star className="h-5 w-5 text-yellow-500" />
+                <Card className="glass glow-amber border-0 rounded-2xl overflow-hidden animate-fade-in-delay-3 hover-lift">
+                    <CardContent className="py-5 px-6">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 rounded-xl bg-gradient-to-br from-yellow-500/20 to-amber-500/20 ring-2 ring-yellow-500/30 pulse-ring">
+                                <Star className="h-6 w-6 text-yellow-400 fill-yellow-400" />
                             </div>
                             <div>
-                                <StarRating rating={metricas.mediaNotas} />
-                                <p className="text-xs font-medium text-muted-foreground mt-1">Média das Notas</p>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-3xl font-bold font-mono text-yellow-400">{metricas.mediaNotas.toFixed(1)}</span>
+                                    <div className="flex items-center gap-0.5">
+                                        {[1, 2, 3, 4, 5].map((i) => (
+                                            <Star
+                                                key={i}
+                                                className={cn(
+                                                    "h-4 w-4",
+                                                    i <= Math.round(metricas.mediaNotas)
+                                                        ? "fill-yellow-400 text-yellow-400"
+                                                        : "text-slate-600"
+                                                )}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                                <p className="text-xs font-medium text-slate-400 mt-1">Média das Notas</p>
                             </div>
                         </div>
                     </CardContent>
@@ -397,32 +416,60 @@ export default function PesquisaSatisfacao() {
             {/* Rankings */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Ranking por Média de Notas */}
-                <Card>
+                <Card className="glass glow-amber border-0 rounded-2xl overflow-hidden">
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-base font-semibold flex items-center gap-2">
-                            <TrendingUp className="h-5 w-5 text-yellow-500" />
-                            Média de Notas por Analista
+                        <CardTitle className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-gradient-to-br from-yellow-500/20 to-amber-500/20">
+                                <TrendingUp className="h-5 w-5 text-yellow-400" />
+                            </div>
+                            <span className="font-bold">Média de Notas por Analista</span>
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3">
+                    <CardContent className="space-y-4">
                         {rankingMedia.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-4">Nenhum dado disponível</p>
+                            <p className="text-sm text-slate-400 text-center py-4">Nenhum dado disponível</p>
                         ) : (
                             rankingMedia.slice(0, 8).map((item, idx) => {
                                 const maxMedia = 5;
                                 const barWidth = (item.media / maxMedia) * 100;
                                 return (
-                                    <div key={item.operador} className="space-y-1">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="font-medium truncate max-w-[150px]">{item.operador}</span>
-                                            <div className="flex items-center gap-2">
-                                                <StarRating rating={item.media} />
+                                    <div key={item.operador} className="space-y-2 group">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-semibold text-slate-200 flex items-center gap-3 text-base">
+                                                <span className={cn(
+                                                    "w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center",
+                                                    idx === 0 ? "bg-yellow-500/30 text-yellow-400 ring-2 ring-yellow-500/40" :
+                                                        idx === 1 ? "bg-slate-400/20 text-slate-300" :
+                                                            idx === 2 ? "bg-amber-600/20 text-amber-400" :
+                                                                "bg-slate-600/30 text-slate-400"
+                                                )}>{idx + 1}</span>
+                                                <span className="truncate max-w-[160px]">{item.operador}</span>
+                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="font-mono text-sm text-yellow-400 font-bold">{item.media.toFixed(1)}</span>
+                                                <div className="flex items-center">
+                                                    {[1, 2, 3, 4, 5].map((i) => (
+                                                        <Star
+                                                            key={i}
+                                                            className={cn(
+                                                                "h-3 w-3",
+                                                                i <= Math.round(item.media)
+                                                                    ? "fill-yellow-400 text-yellow-400"
+                                                                    : "text-slate-600"
+                                                            )}
+                                                        />
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                        <div className="h-3 bg-slate-700/50 rounded-full overflow-hidden">
                                             <div
-                                                className="h-full bg-gradient-to-r from-yellow-400 to-yellow-500 rounded-full transition-all duration-500"
-                                                style={{ width: `${barWidth}%` }}
+                                                className={cn(
+                                                    "h-full rounded-full transition-all duration-500 group-hover:shadow-lg",
+                                                    idx === 0 ? "bg-yellow-500 group-hover:shadow-yellow-500/40" :
+                                                        "bg-yellow-500 group-hover:shadow-yellow-500/30"
+                                                )}
+                                                style={{ width: `${barWidth}%`, background: 'linear-gradient(90deg, #ca8a04, #eab308, #fcd34d)' }}
                                             />
                                         </div>
                                     </div>
@@ -433,32 +480,47 @@ export default function PesquisaSatisfacao() {
                 </Card>
 
                 {/* Ranking por Quantidade */}
-                <Card>
+                <Card className="glass glow-blue border-0 rounded-2xl overflow-hidden">
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-base font-semibold flex items-center gap-2">
-                            <User className="h-5 w-5 text-blue-500" />
-                            Pesquisas Avaliadas por Analista
+                        <CardTitle className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-sky-500/20">
+                                <User className="h-5 w-5 text-blue-400" />
+                            </div>
+                            <span className="font-bold">Pesquisas Avaliadas por Analista</span>
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3">
+                    <CardContent className="space-y-4">
                         {rankingQuantidade.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-4">Nenhum dado disponível</p>
+                            <p className="text-sm text-slate-400 text-center py-4">Nenhum dado disponível</p>
                         ) : (
                             rankingQuantidade.slice(0, 8).map((item, idx) => {
                                 const maxQtd = rankingQuantidade[0]?.quantidade || 1;
                                 const barWidth = (item.quantidade / maxQtd) * 100;
                                 return (
-                                    <div key={item.operador} className="space-y-1">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="font-medium truncate max-w-[150px]">{item.operador}</span>
-                                            <Badge variant="secondary" className="font-mono">
+                                    <div key={item.operador} className="space-y-2 group">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-semibold text-slate-200 flex items-center gap-3 text-base">
+                                                <span className={cn(
+                                                    "w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center",
+                                                    idx === 0 ? "bg-blue-500/30 text-blue-400 ring-2 ring-blue-500/40" :
+                                                        idx === 1 ? "bg-slate-400/20 text-slate-300" :
+                                                            idx === 2 ? "bg-sky-600/20 text-sky-400" :
+                                                                "bg-slate-600/30 text-slate-400"
+                                                )}>{idx + 1}</span>
+                                                <span className="truncate max-w-[160px]">{item.operador}</span>
+                                            </span>
+                                            <span className="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-sky-500 text-white font-bold text-sm shadow-lg shadow-blue-500/20">
                                                 {item.quantidade}
-                                            </Badge>
+                                            </span>
                                         </div>
-                                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                        <div className="h-3 bg-slate-700/50 rounded-full overflow-hidden">
                                             <div
-                                                className="h-full bg-gradient-to-r from-blue-400 to-blue-500 rounded-full transition-all duration-500"
-                                                style={{ width: `${barWidth}%` }}
+                                                className={cn(
+                                                    "h-full rounded-full transition-all duration-500 group-hover:shadow-lg",
+                                                    idx === 0 ? "bg-blue-500 group-hover:shadow-blue-500/40" :
+                                                        "bg-blue-500 group-hover:shadow-blue-500/30"
+                                                )}
+                                                style={{ width: `${barWidth}%`, background: 'linear-gradient(90deg, #2563eb, #3b82f6, #38bdf8)' }}
                                             />
                                         </div>
                                     </div>
@@ -470,13 +532,21 @@ export default function PesquisaSatisfacao() {
             </div>
 
             {/* Tabela de detalhes */}
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-3">
-                    <CardTitle className="text-base font-semibold">Detalhes das Pesquisas</CardTitle>
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Exibir:</span>
+            <Card className="glass border-0 rounded-2xl overflow-hidden">
+                <CardHeader className="flex flex-row items-center justify-between pb-3 px-6">
+                    <CardTitle className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-gradient-to-br from-slate-500/20 to-slate-600/20">
+                            <Calendar className="h-5 w-5 text-slate-400" />
+                        </div>
+                        <span className="font-bold">Detalhes das Pesquisas</span>
+                        <span className="ml-2 px-3 py-1 rounded-full bg-white/10 text-slate-400 text-sm font-medium">
+                            {pesquisasTabela.length} registros
+                        </span>
+                    </CardTitle>
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm text-slate-400">Exibir:</span>
                         <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                            <SelectTrigger className="w-20">
+                            <SelectTrigger className="w-20 bg-white/5 border-white/10">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -489,83 +559,91 @@ export default function PesquisaSatisfacao() {
                     </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <Table>
-                        <TableHeader>
-                            <TableRow className="bg-muted/50">
-                                <TableHead className="w-[100px]">Data</TableHead>
-                                <TableHead className="w-[100px]">Ticket</TableHead>
-                                <TableHead>Contato</TableHead>
-                                <TableHead>Empresa</TableHead>
-                                <TableHead>Descrição</TableHead>
-                                <TableHead>Operador</TableHead>
-                                <TableHead className="text-center">Nota</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {pesquisasTabela.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="py-16">
-                                        <div className="flex flex-col items-center justify-center gap-3 text-center">
-                                            <AlertTriangle className="h-8 w-8 text-muted-foreground" />
-                                            <p className="text-sm text-muted-foreground">Nenhuma pesquisa encontrada</p>
-                                        </div>
-                                    </TableCell>
+                    <div className="rounded-xl overflow-hidden mx-4 mb-4 border border-white/5">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-white/5 hover:bg-white/5 border-b border-white/10">
+                                    <TableHead className="text-slate-300 font-semibold w-[100px]">Data</TableHead>
+                                    <TableHead className="text-slate-300 font-semibold w-[100px]">Ticket</TableHead>
+                                    <TableHead className="text-slate-300 font-semibold">Contato</TableHead>
+                                    <TableHead className="text-slate-300 font-semibold">Empresa</TableHead>
+                                    <TableHead className="text-slate-300 font-semibold">Descrição</TableHead>
+                                    <TableHead className="text-slate-300 font-semibold">Operador</TableHead>
+                                    <TableHead className="text-slate-300 font-semibold text-center">Nota</TableHead>
                                 </TableRow>
-                            ) : (
-                                pesquisasTabela.slice(0, pageSize).map((p, idx) => {
-                                    const nota = parseFloat(p.nota?.replace(',', '.') || '0');
-                                    const dataCriacao = parseDateSafely(p.data_criacao);
-                                    return (
-                                        <TableRow
-                                            key={`${p.ticket}-${idx}`}
-                                            className={cn(idx % 2 === 0 ? "bg-background" : "bg-muted/30")}
-                                        >
-                                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                                                {dataCriacao ? format(dataCriacao, "dd/MM/yyyy HH:mm") : "-"}
-                                            </TableCell>
-                                            <TableCell className="font-mono font-bold">{p.ticket}</TableCell>
-                                            <TableCell className="truncate max-w-[120px]">{p.contato || "-"}</TableCell>
-                                            <TableCell className="truncate max-w-[150px]">{p.razao_social || "-"}</TableCell>
-                                            <TableCell className="max-w-[200px] text-xs">
-                                                {p.descricao_avaliacao && p.descricao_avaliacao !== 'Não possui' ? (
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <span className="truncate block cursor-help">
-                                                                    {p.descricao_avaliacao}
-                                                                </span>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent side="top" className="max-w-[400px] whitespace-pre-wrap">
-                                                                <p>{p.descricao_avaliacao}</p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                ) : (
-                                                    <span className="text-muted-foreground">Sem resposta</span>
+                            </TableHeader>
+                            <TableBody>
+                                {pesquisasTabela.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="py-16">
+                                            <div className="flex flex-col items-center justify-center gap-3 text-center">
+                                                <AlertTriangle className="h-8 w-8 text-slate-500" />
+                                                <p className="text-sm text-slate-400">Nenhuma pesquisa encontrada</p>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    pesquisasTabela.slice(0, pageSize).map((p, idx) => {
+                                        const nota = parseFloat(p.nota?.replace(',', '.') || '0');
+                                        const dataCriacao = parseDateSafely(p.data_criacao);
+                                        return (
+                                            <TableRow
+                                                key={`${p.ticket}-${idx}`}
+                                                className={cn(
+                                                    "transition-all border-b border-white/5",
+                                                    "hover:bg-gradient-to-r hover:from-white/5 hover:to-transparent",
+                                                    idx % 2 === 0 && "bg-white/[0.02]"
                                                 )}
-                                            </TableCell>
-                                            <TableCell className="truncate max-w-[100px]">{p.operador || "-"}</TableCell>
-                                            <TableCell className="text-center">
-                                                {nota > 0 ? (
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        <Star className={cn(
-                                                            "h-4 w-4",
-                                                            nota >= 4 ? "fill-green-400 text-green-400" :
-                                                                nota >= 3 ? "fill-yellow-400 text-yellow-400" :
-                                                                    "fill-red-400 text-red-400"
-                                                        )} />
-                                                        <span className="font-mono font-bold">{nota.toFixed(0)}</span>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-muted-foreground">-</span>
-                                                )}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })
-                            )}
-                        </TableBody>
-                    </Table>
+                                            >
+                                                <TableCell className="text-xs text-slate-400 whitespace-nowrap font-mono">
+                                                    {dataCriacao ? format(dataCriacao, "dd/MM/yyyy HH:mm") : "-"}
+                                                </TableCell>
+                                                <TableCell className="font-mono font-bold text-blue-400">{p.ticket}</TableCell>
+                                                <TableCell className="truncate max-w-[120px] text-slate-300">{p.contato || "-"}</TableCell>
+                                                <TableCell className="truncate max-w-[150px] text-slate-300">{p.razao_social || "-"}</TableCell>
+                                                <TableCell className="max-w-[200px] text-xs">
+                                                    {p.descricao_avaliacao && p.descricao_avaliacao !== 'Não possui' ? (
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <span className="truncate block cursor-help text-slate-300">
+                                                                        {p.descricao_avaliacao}
+                                                                    </span>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent side="top" className="max-w-[400px] whitespace-pre-wrap bg-slate-900 border-slate-700">
+                                                                    <p>{p.descricao_avaliacao}</p>
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+                                                    ) : (
+                                                        <span className="text-slate-500">Sem resposta</span>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="truncate max-w-[100px] text-slate-300 font-medium">{p.operador || "-"}</TableCell>
+                                                <TableCell className="text-center">
+                                                    {nota > 0 ? (
+                                                        <div className="flex items-center justify-center gap-1.5">
+                                                            <span className={cn(
+                                                                "px-2.5 py-1 rounded-full text-sm font-bold flex items-center gap-1 shadow-lg",
+                                                                nota >= 4 ? "bg-gradient-to-r from-emerald-500 to-green-500 text-white shadow-emerald-500/30" :
+                                                                    nota >= 3 ? "bg-gradient-to-r from-yellow-500 to-amber-500 text-yellow-950 shadow-yellow-500/30" :
+                                                                        "bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-red-500/30"
+                                                            )}>
+                                                                <Star className="h-3 w-3 fill-current" />
+                                                                {nota.toFixed(0)}
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-slate-500">-</span>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </CardContent>
             </Card>
         </div>
