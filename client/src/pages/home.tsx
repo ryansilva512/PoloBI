@@ -55,6 +55,9 @@ import {
   SmilePlus,
   Trophy,
   Medal,
+  ArrowUp,
+  ArrowDown,
+  Minus,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import { newTicketsStore } from "@/stores/newTicketsStore";
@@ -361,6 +364,40 @@ export default function Home() {
   // Estado para exibir contagem e dados de chamados abertos (Atendendo + Pausado)
   const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
   const [chamadosAtivos, setChamadosAtivos] = useState<any[]>([]);
+
+  // Estado para rastrear ranking do INÍCIO do dia (para indicadores de mudança de posição)
+  // Ao abrir o dashboard pela primeira vez no dia, salva o ranking como referência
+  // Durante o dia, as atualizações automáticas comparam com essa referência
+  const [startOfDayRanking, setStartOfDayRanking] = useState<Map<string, number>>(() => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const savedData = localStorage.getItem('dashboard-start-of-day-ranking');
+
+    if (savedData) {
+      try {
+        const { date, ranking } = JSON.parse(savedData);
+
+        // Se temos dados de hoje, usar o ranking do início do dia
+        if (date === today && ranking) {
+          return new Map(Object.entries(ranking));
+        }
+      } catch { }
+    }
+    return new Map(); // Novo dia ou primeira vez - será inicializado depois
+  });
+
+  // Flag para saber se já salvou o ranking de referência do dia
+  const startOfDayRankingSavedRef = useRef<boolean>(() => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const savedData = localStorage.getItem('dashboard-start-of-day-ranking');
+    if (savedData) {
+      try {
+        const { date } = JSON.parse(savedData);
+        return date === today;
+      } catch { }
+    }
+    return false;
+  });
+  const rankingInitializedRef = useRef<boolean>(false);
 
   // Função para buscar chamados abertos
   const fetchOpenTickets = async () => {
@@ -1732,6 +1769,66 @@ export default function Home() {
       .sort((a, b) => b.total - a.total);
   }, [ticketsFiltrados, filters.data_inicial, filters.data_final]);
 
+  // Função para obter indicador de mudança de posição (comparando com início do dia)
+  const getPositionChange = (nome: string, currentPosition: number): 'up' | 'down' | 'same' | 'new' => {
+    // Se ainda não há ranking de referência do início do dia, todos ficam com "-"
+    if (startOfDayRanking.size === 0) {
+      return 'same';
+    }
+
+    const startPosition = startOfDayRanking.get(nome);
+    if (startPosition === undefined) {
+      return 'new'; // Operador novo (não estava no início do dia)
+    }
+
+    if (startPosition > currentPosition) {
+      return 'up'; // Subiu desde o início do dia
+    } else if (startPosition < currentPosition) {
+      return 'down'; // Desceu desde o início do dia
+    }
+    return 'same'; // Mesma posição do início do dia
+  };
+
+  // Salvar ranking de referência do início do dia (apenas uma vez por dia)
+  useEffect(() => {
+    if (rankingOperadores.length > 0) {
+      const today = format(new Date(), 'yyyy-MM-dd');
+
+      // Verificar se já salvou o ranking de referência hoje
+      const savedData = localStorage.getItem('dashboard-start-of-day-ranking');
+      let alreadySavedToday = false;
+
+      if (savedData) {
+        try {
+          const { date } = JSON.parse(savedData);
+          alreadySavedToday = date === today;
+        } catch { }
+      }
+
+      // Se é a primeira vez hoje, salvar como ranking de referência do dia
+      if (!alreadySavedToday) {
+        const newRanking = new Map<string, number>();
+        rankingOperadores.forEach((op, idx) => {
+          newRanking.set(op.nome, idx);
+        });
+
+        // Salvar no localStorage
+        const data = {
+          date: today,
+          ranking: Object.fromEntries(newRanking),
+        };
+        localStorage.setItem('dashboard-start-of-day-ranking', JSON.stringify(data));
+
+        // Atualizar state
+        setStartOfDayRanking(newRanking);
+
+        console.log('📊 Ranking de referência do dia salvo:', Object.fromEntries(newRanking));
+      }
+
+      rankingInitializedRef.current = true;
+    }
+  }, [rankingOperadores]);
+
   // Ranking de operadores baseado APENAS em chamados ativos (Atendendo + Pausado)
   const rankingChamadosAtivos = useMemo(() => {
     if (!chamadosAtivos.length) return [];
@@ -1829,6 +1926,9 @@ export default function Home() {
         duration: 2000,
       });
     }
+
+    // Atualizar ranking anterior para indicadores de mudança de posição
+    updatePreviousRanking();
 
     setPreviousTicketCount(newTicketCount);
     setTimeout(() => setIsRefreshing(false), 500);
@@ -1986,7 +2086,7 @@ export default function Home() {
   };
 
   const tempoMedioRespostaGlobal = tempoMedioAbertura.minutos;
-  const topOperadores = rankingOperadores.slice(0, 4);
+  const topOperadores = rankingOperadores.slice(0, 5);
 
   return (
     <div ref={reportRef} className="space-y-6">
@@ -2600,7 +2700,7 @@ export default function Home() {
               <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20">
                 <Activity className="h-5 w-5 text-blue-400" />
               </div>
-              <span className="gradient-text font-bold">Top 4 Operadores</span>
+              <span className="gradient-text font-bold">Top 5 Operadores</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -2612,6 +2712,8 @@ export default function Home() {
               const isFirst = idx === 0;
               const isSecond = idx === 1;
               const isThird = idx === 2;
+              const positionChange = getPositionChange(op.nome, idx);
+
               return (
                 <div
                   key={op.nome}
@@ -2620,16 +2722,33 @@ export default function Home() {
                     isFirst && "bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-transparent border border-amber-500/30 shimmer",
                     isSecond && "bg-slate-500/10 border border-slate-500/20",
                     isThird && "bg-amber-700/10 border border-amber-700/20",
-                    idx === 3 && "bg-white/5 border border-white/10"
+                    idx === 3 && "bg-white/5 border border-white/10",
+                    idx === 4 && "bg-white/5 border border-white/10"
                   )}
                 >
                   <div className="flex items-center gap-4">
+                    {/* Indicador de mudança de posição */}
+                    <div className="w-4 flex items-center justify-center">
+                      {positionChange === 'up' && (
+                        <ArrowUp className="h-4 w-4 text-emerald-400" />
+                      )}
+                      {positionChange === 'down' && (
+                        <ArrowDown className="h-4 w-4 text-red-400" />
+                      )}
+                      {positionChange === 'same' && (
+                        <Minus className="h-3 w-3 text-slate-500" />
+                      )}
+                      {positionChange === 'new' && (
+                        <span className="text-[10px] font-bold text-blue-400">N</span>
+                      )}
+                    </div>
+
                     <div className={cn(
                       "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
                       isFirst && "bg-gradient-to-br from-yellow-400 to-amber-500 text-yellow-950",
                       isSecond && "bg-gradient-to-br from-slate-300 to-slate-400 text-slate-900",
                       isThird && "bg-gradient-to-br from-amber-600 to-amber-700 text-amber-100",
-                      idx === 3 && "bg-slate-700 text-slate-300"
+                      idx >= 3 && "bg-slate-700 text-slate-300"
                     )}>
                       {idx + 1}
                     </div>

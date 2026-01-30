@@ -572,29 +572,30 @@ export default function Operacional() {
       />
 
       {/* Filtros de data e operadores */}
-      <Card className="border-dashed">
-        <CardContent className="flex flex-col gap-4 py-4">
+      <Card className="glass-subtle border-0 rounded-2xl">
+        <CardContent className="flex flex-col gap-5 py-5 px-6">
           {ticketsResponse?.mock && (
-            <div className="rounded-md bg-amber-100 text-amber-900 px-3 py-2 text-sm">
-              Aviso: exibindo dados mock porque a API real não respondeu. Verifique a conexão/API MILVUS.
+            <div className="rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 px-4 py-3 text-sm flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5" />
+              Aviso: exibindo dados mock porque a API real não respondeu.
             </div>
           )}
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
-              Periodo
+            <p className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+              Período
             </p>
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Input
                 type="date"
                 value={dataInicialDate ? format(dataInicialDate, "yyyy-MM-dd") : ""}
                 onChange={(e) => handleDateChange("start", e.target.value)}
-                className="sm:max-w-xs"
+                className="sm:max-w-xs bg-white/5 border-white/10 focus:border-blue-500/50"
               />
               <Input
                 type="date"
                 value={dataFinalDate ? format(dataFinalDate, "yyyy-MM-dd") : ""}
                 onChange={(e) => handleDateChange("end", e.target.value)}
-                className="sm:max-w-xs"
+                className="sm:max-w-xs bg-white/5 border-white/10 focus:border-blue-500/50"
               />
               <Button
                 variant="ghost"
@@ -605,6 +606,7 @@ export default function Operacional() {
                     data_final: undefined,
                   })
                 }
+                className="text-slate-400 hover:text-white hover:bg-white/10"
               >
                 Limpar datas
               </Button>
@@ -612,14 +614,15 @@ export default function Operacional() {
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+            <p className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider mb-3">
               Operadores
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
                 variant={!filters.analista ? "default" : "outline"}
                 onClick={() => handleOperatorFilter()}
+                className={!filters.analista ? "bg-gradient-to-r from-blue-500 to-sky-500 text-white shadow-lg shadow-blue-500/20" : "bg-white/5 border-white/10 hover:bg-white/10"}
               >
                 Todos
               </Button>
@@ -629,6 +632,9 @@ export default function Operacional() {
                   size="sm"
                   variant={filters.analista === operador ? "default" : "secondary"}
                   onClick={() => handleOperatorFilter(operador)}
+                  className={filters.analista === operador
+                    ? "bg-gradient-to-r from-blue-500 to-sky-500 text-white shadow-lg shadow-blue-500/20"
+                    : "bg-white/5 hover:bg-white/10 text-slate-300"}
                 >
                   {operador}
                 </Button>
@@ -682,28 +688,36 @@ export default function Operacional() {
       )}
 
       {/* Gestão de Chamados - PRIMEIRO */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Gestao de Chamados</CardTitle>
+      <Card className="glass border-0 rounded-2xl overflow-hidden">
+        <CardHeader className="pb-3 px-6">
+          <CardTitle className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-sky-500/20">
+              <Clock4 className="h-5 w-5 text-blue-400" />
+            </div>
+            <span className="font-bold">Gestão de Chamados</span>
+            <span className="ml-2 px-3 py-1 rounded-full bg-white/10 text-slate-400 text-sm font-medium">
+              {filteredTickets.length} chamados
+            </span>
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 px-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
             <Input
               placeholder="Buscar por assunto, operador ou cliente..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="md:max-w-sm"
+              className="md:max-w-sm bg-white/5 border-white/10 focus:border-blue-500/50"
             />
             <Input
               placeholder="Pesquisar por protocolo (codigo)..."
               value={protocoloTerm}
               onChange={(e) => setProtocoloTerm(e.target.value)}
-              className="md:max-w-xs"
+              className="md:max-w-xs bg-white/5 border-white/10 focus:border-blue-500/50"
             />
             {/* Dropdown Multi-Select de Status */}
             <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="min-w-[180px] justify-between">
+                <Button variant="outline" size="sm" className="min-w-[180px] justify-between bg-white/5 border-white/10 hover:bg-white/10">
                   <span className="truncate">
                     {selectedStatuses.length === 0
                       ? "Todos os status"
@@ -714,14 +728,14 @@ export default function Operacional() {
                   <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-[220px] p-0" align="start">
+              <PopoverContent className="w-[220px] p-0 bg-slate-900 border-slate-700" align="start">
                 <div className="p-3 space-y-3">
-                  <p className="text-sm font-medium text-muted-foreground">Filtrar por status</p>
+                  <p className="text-sm font-medium text-slate-400">Filtrar por status</p>
                   <div className="space-y-2">
                     {statusDisponiveis.map((status) => (
                       <div
                         key={status}
-                        className="flex items-center space-x-2 cursor-pointer hover:bg-accent rounded px-2 py-1.5"
+                        className="flex items-center space-x-2 cursor-pointer hover:bg-white/10 rounded px-2 py-1.5 transition-colors"
                         onClick={() => toggleStatus(status)}
                       >
                         <Checkbox
@@ -736,23 +750,23 @@ export default function Operacional() {
                           {status}
                         </label>
                         {selectedStatuses.includes(status) && (
-                          <Check className="h-4 w-4 text-primary" />
+                          <Check className="h-4 w-4 text-blue-400" />
                         )}
                       </div>
                     ))}
                   </div>
-                  <div className="flex gap-2 pt-2 border-t">
+                  <div className="flex gap-2 pt-2 border-t border-slate-700">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="flex-1"
+                      className="flex-1 text-slate-400 hover:text-white"
                       onClick={clearStatusFilter}
                     >
                       Limpar
                     </Button>
                     <Button
                       size="sm"
-                      className="flex-1"
+                      className="flex-1 bg-gradient-to-r from-blue-500 to-sky-500"
                       onClick={applyStatusFilter}
                     >
                       OK
@@ -763,8 +777,8 @@ export default function Operacional() {
             </Popover>
 
             {/* Seletor de itens por página */}
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Exibir:</span>
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-sm text-slate-400">Exibir:</span>
               <Select
                 value={String(itemsPerPage)}
                 onValueChange={(value) => {
@@ -772,7 +786,7 @@ export default function Operacional() {
                   setCurrentPage(1);
                 }}
               >
-                <SelectTrigger className="w-[80px]">
+                <SelectTrigger className="w-[80px] bg-white/5 border-white/10">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
