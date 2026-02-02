@@ -796,7 +796,7 @@ export default function Home() {
         nome,
         tempoMedioMinutos: data.count ? (data.totalHoras / data.count) * 60 : 0,  // Converter horas para minutos
       }))
-      .sort((a, b) => b.tempoMedioMinutos - a.tempoMedioMinutos);
+      .sort((a, b) => a.tempoMedioMinutos - b.tempoMedioMinutos);
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
 
   // Calcular tempo de atendimento por operador usando lógica Power BI
@@ -847,7 +847,7 @@ export default function Home() {
         nome,
         tempoMedioAtendimentoMinutos: data.count ? (data.totalHoras / data.count) * 60 : 0,  // Converter horas para minutos
       }))
-      .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
+      .sort((a, b) => a.tempoMedioAtendimentoMinutos - b.tempoMedioAtendimentoMinutos);
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
   // ========== END RELATÓRIO DE TICKETS ==========
 
@@ -2493,90 +2493,95 @@ export default function Home() {
               {tempoRespostaPorOperadorCSV.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
-              {tempoRespostaPorOperadorCSV.slice(0, 8).map((op, idx) => {
-                const maxValor = tempoRespostaPorOperadorCSV[0]?.tempoMedioMinutos || 1;
-                const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
+              {(() => {
+                const listaResposta = tempoRespostaPorOperadorCSV.slice(0, 8);
+                const totalItens = listaResposta.length;
+                return listaResposta.map((op, idx) => {
+                  const maxValor = listaResposta[listaResposta.length - 1]?.tempoMedioMinutos || 1;
+                  const value = maxValor ? (op.tempoMedioMinutos / maxValor) * 100 : 0;
+                  const isLast2 = idx >= totalItens - 2;
 
-                const rankingData = rankingOperadores.find(r => r.nome === op.nome);
-                const totalTickets = rankingData?.total || 0;
-                const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
+                  const rankingData = rankingOperadores.find(r => r.nome === op.nome);
+                  const totalTickets = rankingData?.total || 0;
+                  const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
 
-                return (
-                  <div key={op.nome} className="space-y-1.5 group">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-semibold text-slate-200 flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold flex items-center justify-center">{idx + 1}</span>
-                        {op.nome}
-                      </span>
-                      <span className="font-mono text-sm text-blue-300 font-semibold">
-                        {formatMinutosCompleto(op.tempoMedioMinutos)}
-                      </span>
-                    </div>
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="group relative cursor-pointer"
-                            onClick={() => {
-                              updateFilters({ analista: op.nome });
-                              setLocation('/operacional');
-                            }}
+                  return (
+                    <div key={op.nome} className="space-y-1.5 group">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className={cn("font-semibold flex items-center gap-2", isLast2 ? "text-red-400" : "text-slate-200")}>
+                          <span className={cn("w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center", isLast2 ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400")}>{idx + 1}</span>
+                          {op.nome}
+                        </span>
+                        <span className={cn("font-mono text-sm font-semibold", isLast2 ? "text-red-400" : "text-blue-300")}>
+                          {formatMinutosCompleto(op.tempoMedioMinutos)}
+                        </span>
+                      </div>
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="group relative cursor-pointer"
+                              onClick={() => {
+                                updateFilters({ analista: op.nome });
+                                setLocation('/operacional');
+                              }}
+                            >
+                              <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 rounded-full transition-all duration-500 group-hover:shadow-lg group-hover:shadow-blue-500/40"
+                                  style={{ width: `${value}%` }}
+                                />
+                              </div>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="top"
+                            className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-blue-500/30 shadow-xl shadow-blue-500/20 p-0 overflow-hidden"
                           >
-                            <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 rounded-full transition-all duration-500 group-hover:shadow-lg group-hover:shadow-blue-500/40"
-                                style={{ width: `${value}%` }}
-                              />
-                            </div>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-blue-500/30 shadow-xl shadow-blue-500/20 p-0 overflow-hidden"
-                        >
-                          <div className="p-3 min-w-[220px]">
-                            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-blue-500/20">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
-                                {op.nome.slice(0, 2).toUpperCase()}
+                            <div className="p-3 min-w-[220px]">
+                              <div className="flex items-center gap-2 mb-3 pb-2 border-b border-blue-500/20">
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
+                                  {op.nome.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-white text-sm">{op.nome}</p>
+                                  <p className="text-[10px] text-blue-300/70">Tempo de Resposta</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-bold text-white text-sm">{op.nome}</p>
-                                <p className="text-[10px] text-blue-300/70">Tempo de Resposta</p>
+                              <div className="grid grid-cols-3 gap-2 text-xs">
+                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                  <p className="text-blue-400 font-mono text-lg font-bold">{totalTickets}</p>
+                                  <p className="text-slate-400 text-[10px]">Tickets</p>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                  <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
+                                  <p className="text-slate-400 text-[10px]">Média/Dia</p>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                  <p className="text-emerald-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioMinutos)}</p>
+                                  <p className="text-slate-400 text-[10px]">Tempo</p>
+                                </div>
                               </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-blue-400 font-mono text-lg font-bold">{totalTickets}</p>
-                                <p className="text-slate-400 text-[10px]">Tickets</p>
+                              <div className="mt-2 pt-2 border-t border-slate-700/50">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-400">Comparação</span>
+                                  <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
+                                </div>
+                                <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
+                                  <div className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                                </div>
                               </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
-                                <p className="text-slate-400 text-[10px]">Média/Dia</p>
-                              </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-emerald-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioMinutos)}</p>
-                                <p className="text-slate-400 text-[10px]">Tempo</p>
-                              </div>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-slate-700/50">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-slate-400">Comparação</span>
-                                <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
-                              </div>
-                              <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
-                                <div className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                              <div className="mt-2 pt-2 border-t border-blue-500/20 text-center">
+                                <span className="text-[10px] text-blue-400">👆 Clique para ver detalhes</span>
                               </div>
                             </div>
-                            <div className="mt-2 pt-2 border-t border-blue-500/20 text-center">
-                              <span className="text-[10px] text-blue-400">👆 Clique para ver detalhes</span>
-                            </div>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                );
-              })}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -2606,90 +2611,95 @@ export default function Home() {
               {tempoAtendimentoPorOperadorCSV.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
-              {tempoAtendimentoPorOperadorCSV.slice(0, 8).map((op, idx) => {
-                const maxValor = tempoAtendimentoPorOperadorCSV[0]?.tempoMedioAtendimentoMinutos || 1;
-                const value = maxValor ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100 : 0;
+              {(() => {
+                const listaAtendimento = tempoAtendimentoPorOperadorCSV.slice(0, 8);
+                const totalItens = listaAtendimento.length;
+                return listaAtendimento.map((op, idx) => {
+                  const maxValor = listaAtendimento[listaAtendimento.length - 1]?.tempoMedioAtendimentoMinutos || 1;
+                  const value = maxValor ? (op.tempoMedioAtendimentoMinutos / maxValor) * 100 : 0;
+                  const isLast2 = idx >= totalItens - 2;
 
-                const rankingData = rankingOperadores.find(r => r.nome === op.nome);
-                const totalTickets = rankingData?.total || 0;
-                const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
+                  const rankingData = rankingOperadores.find(r => r.nome === op.nome);
+                  const totalTickets = rankingData?.total || 0;
+                  const mediaDiariaOp = rankingData?.mediaDiaria?.toFixed(2) || '0.00';
 
-                return (
-                  <div key={op.nome} className="space-y-1.5 group">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-semibold text-slate-200 flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold flex items-center justify-center">{idx + 1}</span>
-                        {op.nome}
-                      </span>
-                      <span className="font-mono text-sm text-emerald-300 font-semibold">
-                        {formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}
-                      </span>
-                    </div>
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="group relative cursor-pointer"
-                            onClick={() => {
-                              updateFilters({ analista: op.nome });
-                              setLocation('/operacional');
-                            }}
+                  return (
+                    <div key={op.nome} className="space-y-1.5 group">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className={cn("font-semibold flex items-center gap-2", isLast2 ? "text-red-400" : "text-slate-200")}>
+                          <span className={cn("w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center", isLast2 ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400")}>{idx + 1}</span>
+                          {op.nome}
+                        </span>
+                        <span className={cn("font-mono text-sm font-semibold", isLast2 ? "text-red-400" : "text-emerald-300")}>
+                          {formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}
+                        </span>
+                      </div>
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="group relative cursor-pointer"
+                              onClick={() => {
+                                updateFilters({ analista: op.nome });
+                                setLocation('/operacional');
+                              }}
+                            >
+                              <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 rounded-full transition-all duration-500 group-hover:shadow-lg group-hover:shadow-emerald-500/40"
+                                  style={{ width: `${value}%` }}
+                                />
+                              </div>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="top"
+                            className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-emerald-500/30 shadow-xl shadow-emerald-500/20 p-0 overflow-hidden"
                           >
-                            <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 rounded-full transition-all duration-500 group-hover:shadow-lg group-hover:shadow-emerald-500/40"
-                                style={{ width: `${value}%` }}
-                              />
-                            </div>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-emerald-500/30 shadow-xl shadow-emerald-500/20 p-0 overflow-hidden"
-                        >
-                          <div className="p-3 min-w-[220px]">
-                            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-emerald-500/20">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
-                                {op.nome.slice(0, 2).toUpperCase()}
+                            <div className="p-3 min-w-[220px]">
+                              <div className="flex items-center gap-2 mb-3 pb-2 border-b border-emerald-500/20">
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
+                                  {op.nome.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-white text-sm">{op.nome}</p>
+                                  <p className="text-[10px] text-emerald-300/70">Tempo de Atendimento</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-bold text-white text-sm">{op.nome}</p>
-                                <p className="text-[10px] text-emerald-300/70">Tempo de Atendimento</p>
+                              <div className="grid grid-cols-3 gap-2 text-xs">
+                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                  <p className="text-emerald-400 font-mono text-lg font-bold">{totalTickets}</p>
+                                  <p className="text-slate-400 text-[10px]">Tickets</p>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                  <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
+                                  <p className="text-slate-400 text-[10px]">Média/Dia</p>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                                  <p className="text-cyan-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}</p>
+                                  <p className="text-slate-400 text-[10px]">Tempo</p>
+                                </div>
                               </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-emerald-400 font-mono text-lg font-bold">{totalTickets}</p>
-                                <p className="text-slate-400 text-[10px]">Tickets</p>
+                              <div className="mt-2 pt-2 border-t border-slate-700/50">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-400">Comparação</span>
+                                  <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
+                                </div>
+                                <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
+                                  <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                                </div>
                               </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-amber-400 font-mono text-lg font-bold">{mediaDiariaOp}</p>
-                                <p className="text-slate-400 text-[10px]">Média/Dia</p>
-                              </div>
-                              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
-                                <p className="text-cyan-400 font-mono text-sm font-bold">{formatMinutosCompleto(op.tempoMedioAtendimentoMinutos)}</p>
-                                <p className="text-slate-400 text-[10px]">Tempo</p>
-                              </div>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-slate-700/50">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-slate-400">Comparação</span>
-                                <span className="text-[10px] font-mono text-amber-400">{value.toFixed(0)}%</span>
-                              </div>
-                              <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-1 overflow-hidden">
-                                <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all" style={{ width: `${value}%` }} />
+                              <div className="mt-2 pt-2 border-t border-emerald-500/20 text-center">
+                                <span className="text-[10px] text-emerald-400">👆 Clique para ver detalhes</span>
                               </div>
                             </div>
-                            <div className="mt-2 pt-2 border-t border-emerald-500/20 text-center">
-                              <span className="text-[10px] text-emerald-400">👆 Clique para ver detalhes</span>
-                            </div>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                );
-              })}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </CardContent>
         </Card>
