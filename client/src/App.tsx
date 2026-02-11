@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { FilterProvider } from "@/context/FilterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { BreakAlertOverlay } from "@/components/BreakAlertOverlay";
 import {
   SidebarProvider,
   SidebarTrigger,
@@ -133,6 +134,7 @@ function App() {
             <TooltipProvider>
               <AppRoutes />
               <Toaster />
+              <BreakAlertOverlay />
             </TooltipProvider>
           </FilterProvider>
         </AuthProvider>
