@@ -8,8 +8,12 @@ const BREAK_TIMES = [
 
 const BREAK_DURATION_MS = 120_000; // 2 minutos de pausa
 
-// Tentar mp3 primeiro (melhor suporte), fallback para mpeg
-const MUSIC_PATHS = ['/music/rock.mp3', '/music/rock.mpeg'];
+// Lista de músicas disponíveis (mp3 primeiro, mpeg como fallback)
+const MUSIC_SONGS = [
+    { name: 'Rock', paths: ['/music/rock.mp3', '/music/rock.mpeg'] },
+    { name: 'Linkin Park', paths: ['/music/linkin-park.mp3', '/music/Linkin park.mpeg'] },
+    { name: 'System of a Down', paths: ['/music/system-of-down.mp3', '/music/system of down.mpeg'] },
+];
 
 type BreakPhase = 'idle' | 'break' | 'return';
 
@@ -20,8 +24,10 @@ export function useBreakAlert() {
         return stored !== null ? stored === 'true' : true;
     });
     const [secondsLeft, setSecondsLeft] = useState(0);
+    const [currentSong, setCurrentSong] = useState('');
 
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const audioElementsRef = useRef<HTMLAudioElement[]>([]);
+    const activeAudioRef = useRef<HTMLAudioElement | null>(null);
     const breakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastTriggeredRef = useRef<string>('');
@@ -32,51 +38,52 @@ export function useBreakAlert() {
         localStorage.setItem('break-alert-enabled', String(enabled));
     }, [enabled]);
 
-    // Pré-carregar áudio ao montar
+    // Pré-carregar todas as músicas ao montar
     useEffect(() => {
-        const initAudio = async () => {
-            for (const path of MUSIC_PATHS) {
-                try {
-                    const audio = new Audio(path);
-                    audio.loop = true;
-                    audio.volume = 0.5;
-                    audio.preload = 'auto';
+        const initAllAudio = async () => {
+            const loaded: HTMLAudioElement[] = [];
 
-                    // Testar se o formato é suportado
-                    await new Promise<void>((resolve, reject) => {
-                        audio.addEventListener('canplaythrough', () => {
-                            console.log(`🎵 Áudio carregado com sucesso: ${path}`);
-                            resolve();
-                        }, { once: true });
-                        audio.addEventListener('error', () => {
-                            console.warn(`⚠️ Erro ao carregar áudio: ${path}`, audio.error);
-                            reject(new Error(`Formato não suportado: ${path}`));
-                        }, { once: true });
-                        // Timeout de 5 segundos para carregar
-                        setTimeout(() => {
-                            console.log(`🎵 Timeout carregando ${path}, tentando usar mesmo assim`);
-                            resolve();
-                        }, 5000);
-                        audio.load();
-                    });
+            for (const song of MUSIC_SONGS) {
+                for (const path of song.paths) {
+                    try {
+                        const audio = new Audio(path);
+                        audio.loop = true;
+                        audio.volume = 0.5;
+                        audio.preload = 'auto';
+                        audio.dataset.songName = song.name;
 
-                    audioRef.current = audio;
-                    console.log(`🎵 Usando arquivo de música: ${path}`);
-                    return; // Sucesso, parar de tentar
-                } catch (e) {
-                    console.warn(`⚠️ Falha ao carregar ${path}, tentando próximo...`);
+                        await new Promise<void>((resolve, reject) => {
+                            audio.addEventListener('canplaythrough', () => {
+                                console.log(`🎵 Música carregada: "${song.name}" (${path})`);
+                                resolve();
+                            }, { once: true });
+                            audio.addEventListener('error', () => {
+                                reject(new Error(`Formato não suportado: ${path}`));
+                            }, { once: true });
+                            setTimeout(() => resolve(), 5000);
+                            audio.load();
+                        });
+
+                        loaded.push(audio);
+                        break; // Formato funcionou, não precisa tentar fallback
+                    } catch {
+                        console.warn(`⚠️ Falha ao carregar "${song.name}" (${path}), tentando próximo formato...`);
+                    }
                 }
             }
-            console.error('❌ Nenhum arquivo de música pôde ser carregado!');
+
+            audioElementsRef.current = loaded;
+            console.log(`🎵 Total de músicas carregadas: ${loaded.length}/${MUSIC_SONGS.length}`);
         };
 
-        initAudio();
+        initAllAudio();
 
         return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
-            }
+            audioElementsRef.current.forEach(a => {
+                a.pause();
+                a.src = '';
+            });
+            audioElementsRef.current = [];
         };
     }, []);
 
@@ -162,23 +169,41 @@ export function useBreakAlert() {
         }
     }, []);
 
-    // Iniciar música
+    // Iniciar música (escolhe aleatoriamente)
     const startMusic = useCallback(() => {
         console.log('🎵 startMusic chamado');
         try {
-            if (audioRef.current) {
-                audioRef.current.currentTime = 0;
-                audioRef.current.volume = 0.5;
-                const playPromise = audioRef.current.play();
-                if (playPromise) {
-                    playPromise.then(() => {
-                        console.log('🎵 Música tocando!');
-                    }).catch(e => {
-                        console.error('🎵 Erro ao tocar música:', e);
-                    });
-                }
-            } else {
-                console.error('🎵 audioRef.current é null - áudio não foi carregado');
+            const songs = audioElementsRef.current;
+            if (songs.length === 0) {
+                console.error('🎵 Nenhuma música carregada!');
+                return;
+            }
+
+            // Escolher aleatoriamente
+            const randomIndex = Math.floor(Math.random() * songs.length);
+            const audio = songs[randomIndex];
+            const songName = audio.dataset.songName || 'Desconhecida';
+
+            console.log(`🎵 Sorteada: "${songName}" (${randomIndex + 1}/${songs.length})`);
+            setCurrentSong(songName);
+
+            // Parar qualquer música anterior
+            if (activeAudioRef.current && activeAudioRef.current !== audio) {
+                activeAudioRef.current.pause();
+                activeAudioRef.current.currentTime = 0;
+            }
+
+            activeAudioRef.current = audio;
+            audio.currentTime = 0;
+            audio.volume = 0.5;
+
+            const playPromise = audio.play();
+            if (playPromise) {
+                playPromise.then(() => {
+                    console.log(`🎵 Tocando: "${songName}"!`);
+                }).catch(e => {
+                    console.error('🎵 Erro ao tocar música:', e);
+                });
             }
         } catch (e) {
             console.error('🎵 Exceção ao tocar música:', e);
@@ -187,8 +212,8 @@ export function useBreakAlert() {
 
     // Parar música
     const stopMusic = useCallback(() => {
-        if (audioRef.current) {
-            const audio = audioRef.current;
+        if (activeAudioRef.current) {
+            const audio = activeAudioRef.current;
             // Fade out suave
             const fadeOut = setInterval(() => {
                 if (audio.volume > 0.05) {
@@ -198,6 +223,7 @@ export function useBreakAlert() {
                     audio.pause();
                     audio.currentTime = 0;
                     audio.volume = 0.5;
+                    activeAudioRef.current = null;
                 }
             }, 100);
         }
@@ -303,9 +329,10 @@ export function useBreakAlert() {
         phase,
         enabled,
         secondsLeft,
+        currentSong,
         progressWidth: `${((120 - secondsLeft) / 120) * 100}%`,
         toggle,
         dismiss,
-        triggerBreak, // para teste manual
+        triggerBreak,
     };
 }
