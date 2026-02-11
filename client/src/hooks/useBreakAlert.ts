@@ -6,7 +6,7 @@ const BREAK_TIMES = [
     '13:30', '14:30', '15:30', '16:30', '17:30',
 ];
 
-const BREAK_DURATION_MS = 60_000; // 1 minuto de pausa
+const BREAK_DURATION_MS = 120_000; // 2 minutos de pausa
 
 // Tentar mp3 primeiro (melhor suporte), fallback para mpeg
 const MUSIC_PATHS = ['/music/rock.mp3', '/music/rock.mpeg'];
@@ -208,7 +208,7 @@ export function useBreakAlert() {
         if (musicStartedRef.current) return; // Evitar chamar duplamente
         musicStartedRef.current = true;
         console.log('🎵 Break Alert: Fala terminou, tocando música e iniciando countdown!');
-        setSecondsLeft(60);
+        setSecondsLeft(120);
 
         // Tocar música
         startMusic();
@@ -243,7 +243,7 @@ export function useBreakAlert() {
     const triggerBreak = useCallback(() => {
         console.log('🚶 Break Alert: Hora de se levantar!');
         setPhase('break');
-        setSecondsLeft(60);
+        setSecondsLeft(120);
         musicStartedRef.current = false;
 
         // 1) Falar a mensagem primeiro
@@ -303,6 +303,7 @@ export function useBreakAlert() {
         phase,
         enabled,
         secondsLeft,
+        progressWidth: `${((120 - secondsLeft) / 120) * 100}%`,
         toggle,
         dismiss,
         triggerBreak, // para teste manual

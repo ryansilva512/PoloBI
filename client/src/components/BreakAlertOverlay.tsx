@@ -2,7 +2,7 @@ import { useBreakAlert } from '@/hooks/useBreakAlert';
 import { Activity, Coffee, Dumbbell, ArrowLeft, X, Volume2, VolumeX, Play } from 'lucide-react';
 
 export function BreakAlertOverlay() {
-    const { phase, enabled, secondsLeft, toggle, dismiss, triggerBreak } = useBreakAlert();
+    const { phase, enabled, secondsLeft, progressWidth, toggle, dismiss, triggerBreak } = useBreakAlert();
 
     // Botões flutuantes (sempre visíveis quando idle)
     const floatingButtons = (
@@ -228,7 +228,7 @@ export function BreakAlertOverlay() {
                         >
                             <div
                                 style={{
-                                    width: `${((60 - secondsLeft) / 60) * 100}%`,
+                                    width: progressWidth,
                                     height: '100%',
                                     borderRadius: '4px',
                                     background: 'rgba(255,255,255,0.7)',
