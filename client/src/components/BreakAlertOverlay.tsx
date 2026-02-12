@@ -178,7 +178,7 @@ export function BreakAlertOverlay() {
                     >
                         {isBreak
                             ? 'Vamo levantar, se esticar, alongar! 💪'
-                            : 'Bora voltar família, só tem monstro aqui! 🦾'}
+                            : 'Bora voltar pro Flow familia! 🦾'}
                     </p>
 
                     {/* Countdown (só na fase break) */}

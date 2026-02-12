@@ -10,9 +10,12 @@ const BREAK_DURATION_MS = 120_000; // 2 minutos de pausa
 
 // Lista de músicas disponíveis (mp3 primeiro, mpeg como fallback)
 const MUSIC_SONGS = [
-    { name: 'Rock', paths: ['/music/rock.mp3', '/music/rock.mpeg'] },
-    { name: 'Linkin Park', paths: ['/music/linkin-park.mp3', '/music/Linkin park.mpeg'] },
-    { name: 'System of a Down', paths: ['/music/system-of-down.mp3', '/music/system of down.mpeg'] },
+    { name: "Guns N' Roses - Sweet Child O' Mine", paths: ["/music/Guns N' Roses - Sweet Child O' Mine.mp3", "/music/Guns N' Roses - Sweet Child O' Mine.mpeg"] },
+    { name: 'Linkin Park - Somewhere I Belong', paths: ['/music/Linkin park - Somewhere I Belong.mp3', '/music/Linkin park - Somewhere I Belong.mpeg'] },
+    { name: 'Linkin Park - Faint', paths: ['/music/Linkin park - Faint.mp3', '/music/Linkin park - Faint.mpeg'] },
+    { name: 'System of a Down - B.Y.O.B', paths: ['/music/System of down - B.Y.O.B.mp3', '/music/System of down - B.Y.O.B.mpeg'] },
+    { name: 'System of a Down - Sugar', paths: ['/music/System of down - Sugar.mp3', '/music/System of down - Sugar.mpeg'] },
+    { name: 'Iron Maiden - The Trooper', paths: ['/music/Iron Maiden - The Trooper.mp3', '/music/Iron Maiden - The Trooper.mpeg'] },
 ];
 
 type BreakPhase = 'idle' | 'break' | 'return';
@@ -256,7 +259,7 @@ export function useBreakAlert() {
             setPhase('return');
             stopMusic();
 
-            speak('Bora voltar família, só tem monstro aqui!');
+            speak('Bora voltar pro Flow familia!');
 
             // Esconder o overlay após 8 segundos
             setTimeout(() => {
@@ -272,9 +275,16 @@ export function useBreakAlert() {
         setSecondsLeft(120);
         musicStartedRef.current = false;
 
+        // Mensagem especial às 17:30
+        const now = new Date();
+        const isLastBreak = now.getHours() === 17 && now.getMinutes() === 30;
+        const breakMessage = isLastBreak
+            ? 'Bora, X1 familia!'
+            : 'Bora Tropa, vamo levantar, se esticar, alongar!';
+
         // 1) Falar a mensagem primeiro
         // 2) Quando terminar de falar → começa música + countdown
-        speak('Bora Tropa, vamo levantar, se esticar, alongar!', () => {
+        speak(breakMessage, () => {
             startCountdownAndMusic();
         });
     }, [speak, startCountdownAndMusic]);
