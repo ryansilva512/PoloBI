@@ -11,11 +11,14 @@ const BREAK_DURATION_MS = 120_000; // 2 minutos de pausa
 // Lista de músicas disponíveis (mp3 primeiro, mpeg como fallback)
 const MUSIC_SONGS = [
     { name: "Guns N' Roses - Sweet Child O' Mine", paths: ["/music/Guns N' Roses - Sweet Child O' Mine.mp3", "/music/Guns N' Roses - Sweet Child O' Mine.mpeg"] },
+    { name: "Guns N' Roses - Welcome to the Jungle", paths: ["/music/Guns N' Roses - Welcome to the Jungle.mp3", "/music/Guns N' Roses - Welcome to the Jungle.mpeg"] },
     { name: 'Linkin Park - Somewhere I Belong', paths: ['/music/Linkin park - Somewhere I Belong.mp3', '/music/Linkin park - Somewhere I Belong.mpeg'] },
     { name: 'Linkin Park - Faint', paths: ['/music/Linkin park - Faint.mp3', '/music/Linkin park - Faint.mpeg'] },
+    { name: 'Linkin Park - The Emptiness Machine', paths: ['/music/Link Park - The Emptiness Machine.mp3', '/music/Link Park - The Emptiness Machine.mpeg'] },
     { name: 'System of a Down - B.Y.O.B', paths: ['/music/System of down - B.Y.O.B.mp3', '/music/System of down - B.Y.O.B.mpeg'] },
     { name: 'System of a Down - Sugar', paths: ['/music/System of down - Sugar.mp3', '/music/System of down - Sugar.mpeg'] },
     { name: 'Iron Maiden - The Trooper', paths: ['/music/Iron Maiden - The Trooper.mp3', '/music/Iron Maiden - The Trooper.mpeg'] },
+    { name: 'Limp Bizkit - Break Stuff', paths: ['/music/Limp Bizkit - Break Stuff.mp3', '/music/Limp Bizkit - Break Stuff.mpeg'] },
 ];
 
 type BreakPhase = 'idle' | 'break' | 'return';
