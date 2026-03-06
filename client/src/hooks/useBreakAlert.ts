@@ -20,6 +20,7 @@ const MUSIC_SONGS = [
     { name: 'System of a Down - Sugar', paths: ['/music/system-of-a-down-sugar.mp3', '/music/system-of-a-down-sugar.mpeg'] },
     { name: 'Iron Maiden - The Trooper', paths: ['/music/iron-maiden-the-trooper.mp3', '/music/iron-maiden-the-trooper.mpeg'] },
     { name: 'Limp Bizkit - Break Stuff', paths: ['/music/limp-bizkit-break-stuff.mp3', '/music/limp-bizkit-break-stuff.mpeg'] },
+    { name: 'Skillet - Hero', paths: ['/music/skillet-hero.mp3', '/music/skillet-hero.mpeg'] },
 ];
 
 type BreakPhase = 'idle' | 'break' | 'return';
