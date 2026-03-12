@@ -18,11 +18,12 @@ import {
     Clock,
     Briefcase,
     ServerCrash,
+    UserCheck,
 } from "lucide-react";
 
 // ===================== TYPES =====================
 
-export type NotificationType = "novo_chamado" | "finalizado" | "erro_milvus";
+export type NotificationType = "novo_chamado" | "finalizado" | "chamado_atribuido" | "erro_milvus";
 
 export interface NovoChamadoData {
     codigo: number;
@@ -41,6 +42,13 @@ export interface FinalizadoData {
     nome_fantasia?: string;
 }
 
+export interface ChamadoAtribuidoData {
+    codigo: number;
+    assunto: string;
+    nome?: string; // operador que pegou
+    nome_fantasia?: string;
+}
+
 export interface ErroMilvusData {
     status: number;
     message: string;
@@ -51,7 +59,7 @@ export interface ErroMilvusData {
 export interface AppNotification {
     id: string;
     type: NotificationType;
-    data: NovoChamadoData | FinalizadoData | ErroMilvusData;
+    data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData;
     createdAt: number;
     duration: number; // ms
 }
@@ -67,7 +75,7 @@ class NotificationStore {
 
     add(
         type: NotificationType,
-        data: NovoChamadoData | FinalizadoData | ErroMilvusData,
+        data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData,
         duration = 10000
     ) {
         const id = `notif-${++this.counter}-${Date.now()}`;
@@ -348,6 +356,90 @@ function NotificationCard({
                 );
             }
 
+            case "chamado_atribuido": {
+                const d = notification.data as ChamadoAtribuidoData;
+                const operadorNome = d.nome || "Operador";
+                return (
+                    <>
+                        {/* Header */}
+                        <div className="flex items-center gap-5 mb-6">
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/30 to-orange-500/30 shrink-0">
+                                <UserCheck className="h-10 w-10 text-amber-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-2xl font-black text-amber-300 truncate">
+                                    🙋 Chamado Atribuído!
+                                </h3>
+                                <p className="text-sm text-slate-400 font-medium">
+                                    {new Date().toLocaleString("pt-BR")}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Body with operator avatar */}
+                        <div className="flex items-center gap-6 mb-6 p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                            <Avatar className="h-20 w-20 ring-4 ring-amber-500/40 ring-offset-4 ring-offset-slate-900 shrink-0">
+                                <AvatarImage
+                                    src={getAvatarSrc(operadorNome)}
+                                    alt={operadorNome}
+                                />
+                                <AvatarFallback className="bg-gradient-to-br from-amber-600 to-orange-700 text-white font-black text-2xl">
+                                    {operadorNome.slice(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                                <p className="text-xs uppercase text-amber-400/70 font-bold tracking-widest">
+                                    Atribuído a
+                                </p>
+                                <p className="text-2xl font-black text-amber-300 truncate">
+                                    {operadorNome}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 pl-1">
+                            <div className="flex items-start gap-3">
+                                <Hash className="h-6 w-6 text-amber-400/70 mt-0.5 shrink-0" />
+                                <div>
+                                    <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                        Código
+                                    </span>
+                                    <p className="text-xl font-black text-white">
+                                        #{d.codigo}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-start gap-3">
+                                <Briefcase className="h-6 w-6 text-amber-400/70 mt-0.5 shrink-0" />
+                                <div className="min-w-0">
+                                    <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                        Assunto
+                                    </span>
+                                    <p className="text-xl font-bold text-slate-200 break-words leading-tight">
+                                        {d.assunto}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {d.nome_fantasia && (
+                                <div className="flex items-start gap-3">
+                                    <Building2 className="h-6 w-6 text-amber-400/70 mt-0.5 shrink-0" />
+                                    <div className="min-w-0">
+                                        <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                            Cliente
+                                        </span>
+                                        <p className="text-lg text-slate-300 font-semibold truncate">
+                                            {d.nome_fantasia}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                );
+            }
+
             case "erro_milvus": {
                 const d = notification.data as ErroMilvusData;
                 return (
@@ -407,18 +499,21 @@ function NotificationCard({
     const borderColor = {
         novo_chamado: "border-blue-500/40",
         finalizado: "border-emerald-500/40",
+        chamado_atribuido: "border-amber-500/40",
         erro_milvus: "border-red-500/40",
     }[notification.type];
 
     const glowColor = {
         novo_chamado: "shadow-blue-500/20",
         finalizado: "shadow-emerald-500/20",
+        chamado_atribuido: "shadow-amber-500/20",
         erro_milvus: "shadow-red-500/20",
     }[notification.type];
 
     const progressColor = {
         novo_chamado: "bg-blue-500",
         finalizado: "bg-emerald-500",
+        chamado_atribuido: "bg-amber-500",
         erro_milvus: "bg-red-500",
     }[notification.type];
 

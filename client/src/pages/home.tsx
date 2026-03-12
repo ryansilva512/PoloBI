@@ -356,6 +356,9 @@ export default function Home() {
   const previousOpenTicketsRef = useRef<any[]>([]);
   const openTicketsInitializedRef = useRef<boolean>(false);
 
+  // Mapa para rastrear técnico atribuído por chamado: { codigo: tecnico }
+  const previousTicketTecnicosRef = useRef<Map<number, string>>(new Map());
+
   // Ref para rastrear se houve erro de API recente (evitar falsos positivos de finalização)
   const hadApiErrorRef = useRef<boolean>(false);
 
@@ -1156,6 +1159,97 @@ export default function Home() {
         }, 300);
       }
 
+      // 4.5 Detectar quando operador PEGA um chamado (tecnico muda de vazio para atribuído)
+      const chamadosAtribuidos: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
+
+      if (openTicketsInitializedRef.current && previousTicketTecnicosRef.current.size > 0) {
+        openTickets.forEach((ticket: any) => {
+          const codigo = ticket.codigo || ticket.id;
+          const tecnicoAtual = (ticket.tecnico || '').trim();
+          const tecnicoAnterior = (previousTicketTecnicosRef.current.get(codigo) || '').trim();
+
+          // Detectar: tinha sem técnico (ou vazio) e agora tem técnico atribuído
+          if (tecnicoAtual && (!tecnicoAnterior || tecnicoAnterior === 'Não atribuído')) {
+            console.log('🙋 OPERADOR PEGOU CHAMADO:', codigo, '→', tecnicoAtual);
+            chamadosAtribuidos.push({
+              codigo,
+              assunto: ticket.assunto || 'Sem assunto',
+              nome: tecnicoAtual,
+              nome_fantasia: ticket.nome_fantasia || ticket.cliente || 'Cliente',
+            });
+          }
+        });
+      }
+
+      // Atualizar mapa de técnicos para próxima comparação
+      const newTecnicosMap = new Map<number, string>();
+      openTickets.forEach((ticket: any) => {
+        const codigo = ticket.codigo || ticket.id;
+        newTecnicosMap.set(codigo, (ticket.tecnico || '').trim());
+      });
+      previousTicketTecnicosRef.current = newTecnicosMap;
+
+      console.log('🙋 Chamados atribuídos detectados:', chamadosAtribuidos.length);
+
+      if (chamadosAtribuidos.length > 0) {
+        // Som de atribuição (melodia ascendente suave - diferente de novo chamado e finalizado)
+        const playAssignSound = () => {
+          try {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const playTone = (startTime: number, frequency: number, duration: number) => {
+              const oscillator = audioContext.createOscillator();
+              const gainNode = audioContext.createGain();
+              oscillator.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+              oscillator.frequency.value = frequency;
+              oscillator.type = 'triangle';
+              gainNode.gain.setValueAtTime(0.2, startTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+              oscillator.start(startTime);
+              oscillator.stop(startTime + duration);
+            };
+            const now = audioContext.currentTime;
+            playTone(now, 440, 0.15);       // A4
+            playTone(now + 0.12, 554, 0.15); // C#5
+            playTone(now + 0.24, 659, 0.15); // E5
+            playTone(now + 0.36, 880, 0.3);  // A5 (longa)
+          } catch (e) {
+            console.log('Audio não suportado');
+          }
+        };
+
+        // Tocar som apenas se não houver novos chamados (evitar sobreposição)
+        if (novosChamados.length === 0) {
+          playAssignSound();
+        }
+
+        // Mostrar cards visuais para cada chamado atribuído
+        const delayBase = novosChamados.length > 0 ? 4000 : 0;
+        chamadosAtribuidos.slice(0, 3).forEach((ticket, index) => {
+          setTimeout(() => {
+            notificationStore.add('chamado_atribuido', {
+              codigo: ticket.codigo,
+              assunto: ticket.assunto,
+              nome: ticket.nome,
+              nome_fantasia: ticket.nome_fantasia,
+            }, 10000);
+          }, delayBase + index * 800);
+        });
+
+        // Anúncio por voz
+        const voiceDelay = novosChamados.length > 0 ? 5000 : 500;
+        setTimeout(() => {
+          const primeiro = chamadosAtribuidos[0];
+          const operador = primeiro.nome || 'Operador';
+          const cliente = primeiro.nome_fantasia || 'cliente';
+          if (chamadosAtribuidos.length === 1) {
+            speakAnnouncement(`Atenção! O operador ${operador} pegou o chamado do cliente ${cliente}`);
+          } else {
+            speakAnnouncement(`Atenção! ${chamadosAtribuidos.length} chamados foram atribuídos a operadores`);
+          }
+        }, voiceDelay);
+      }
+
       // 5. Detectar tickets FINALIZADOS - Nova lógica: detectar quando chamados SAEM da lista de abertos
       // Isso é mais confiável que buscar uma API de finalizados que pode retornar dados inconsistentes
       const newFinalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
@@ -1228,8 +1322,8 @@ export default function Home() {
           }
         };
 
-        // Só tocar som de finalização se não tiver novos chamados (para não sobrepor)
-        if (novosChamados.length === 0) {
+        // Só tocar som de finalização se não tiver novos chamados nem atribuições (para não sobrepor)
+        if (novosChamados.length === 0 && chamadosAtribuidos.length === 0) {
           playSuccessSound();
         }
 
@@ -1242,18 +1336,19 @@ export default function Home() {
               nome: ticket.nome,
               nome_fantasia: ticket.nome_fantasia,
             }, 10000);
-          }, (novosChamados.length > 0 ? 4000 : 0) + index * 800);
+          }, ((novosChamados.length > 0 || chamadosAtribuidos.length > 0) ? 4000 : 0) + index * 800);
         });
 
-        // Falar o primeiro finalizado (com delay se tiver novos chamados)
+        // Falar o primeiro finalizado (com delay se tiver novos chamados ou atribuições)
+        const finalizadoVoiceDelay = (novosChamados.length > 0 || chamadosAtribuidos.length > 0) ? 6000 : 500;
         setTimeout(() => {
           const primeiro = newFinalizados[0];
           const operador = primeiro.nome || 'Operador';
           const cliente = primeiro.nome_fantasia || 'cliente';
           // Usando speakAnnouncement para garantir consistência
           speakAnnouncement(`Atenção! O Operador ${operador} finalizou o chamado do cliente ${cliente}`);
-        }, novosChamados.length > 0 ? 5000 : 500);
-      } else if (novosChamados.length === 0) {
+        }, finalizadoVoiceDelay);
+      } else if (novosChamados.length === 0 && chamadosAtribuidos.length === 0) {
         // Se não houve finalizações nem novos, mostrar atualização silenciosa
         toast({
           title: "Dados atualizados",
@@ -1912,9 +2007,6 @@ export default function Home() {
         duration: 2000,
       });
     }
-
-    // Atualizar ranking anterior para indicadores de mudança de posição
-    updatePreviousRanking();
 
     setPreviousTicketCount(newTicketCount);
     setTimeout(() => setIsRefreshing(false), 500);
