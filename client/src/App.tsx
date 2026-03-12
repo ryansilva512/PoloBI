@@ -9,6 +9,7 @@ import { FilterProvider } from "@/context/FilterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { BreakAlertOverlay } from "@/components/BreakAlertOverlay";
+import { NotificationOverlay } from "@/components/NotificationOverlay";
 import {
   SidebarProvider,
   SidebarTrigger,
@@ -135,6 +136,7 @@ function App() {
               <AppRoutes />
               <Toaster />
               <BreakAlertOverlay />
+              <NotificationOverlay />
             </TooltipProvider>
           </FilterProvider>
         </AuthProvider>

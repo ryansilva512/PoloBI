@@ -61,6 +61,7 @@ import {
 } from "lucide-react";
 import jsPDF from "jspdf";
 import { newTicketsStore } from "@/stores/newTicketsStore";
+import { notificationStore } from "@/components/NotificationOverlay";
 
 const META_RESPOSTA_MINUTOS = 5;
 const META_ATENDIMENTO_HORAS = 4;
@@ -1002,13 +1003,13 @@ export default function Home() {
       hadApiErrorRef.current = true;
       console.log('⚠️ Flag de erro de API ativada - próximas respostas vazias serão ignoradas');
 
-      // Mostrar toast de alerta (sem áudio, apenas visual)
-      toast({
-        title: "🚨 Atenção Desenvolvedores!",
-        description: `A API do Milvus está fora do ar! Erro ${status}: ${message}`,
-        variant: "destructive",
-        duration: 10000, // 10 segundos
-      });
+      // Mostrar card de alerta grande (sem áudio, apenas visual)
+      notificationStore.add('erro_milvus', {
+        status,
+        message,
+        endpoint,
+        timestamp,
+      }, 12000);
     };
 
     // Adicionar listener
@@ -1127,25 +1128,20 @@ export default function Home() {
         // Registrar novos chamados no store para destaque na Gestão de Chamados
         newTicketsStore.addTickets(novosChamados);
 
-        novosChamados.slice(0, 2).forEach((ticket, index) => {
+        // Mostrar cards de alerta grandes para cada novo chamado
+        novosChamados.slice(0, 3).forEach((ticket, index) => {
           setTimeout(() => {
-            toast({
-              title: '🔔 Novo chamado aberto!',
-              description: `"${ticket.assunto}" (Código: ${ticket.codigo})`,
-              duration: 8000,
-            });
-          }, index * 1200);
+            notificationStore.add('novo_chamado', {
+              codigo: ticket.codigo,
+              assunto: ticket.assunto,
+              nome_fantasia: ticket.nome_fantasia,
+              data_criacao: ticket.data_criacao,
+              status: typeof ticket.status === 'object' ? ticket.status?.text : ticket.status,
+              mesa_trabalho: typeof ticket.mesa_trabalho === 'object' ? ticket.mesa_trabalho?.text : ticket.mesa_trabalho,
+              nome: ticket.nome,
+            }, 10000);
+          }, index * 800);
         });
-
-        if (novosChamados.length > 2) {
-          setTimeout(() => {
-            toast({
-              title: `📢 +${novosChamados.length - 2} novos chamados`,
-              description: 'Múltiplos chamados foram abertos',
-              duration: 5000,
-            });
-          }, 3000);
-        }
 
         // Notificação por voz corrigida
         setTimeout(() => {
@@ -1237,27 +1233,17 @@ export default function Home() {
           playSuccessSound();
         }
 
-        // Mostrar toast para cada ticket finalizado
+        // Mostrar cards de alerta grandes para cada ticket finalizado
         newFinalizados.slice(0, 3).forEach((ticket, index) => {
           setTimeout(() => {
-            toast({
-              title: '✅ Chamado Finalizado!',
-              description: `"${ticket.assunto}" (Código: ${ticket.codigo}) por ${ticket.nome}`,
-              duration: 6000,
-            });
-          }, (novosChamados.length > 0 ? 4000 : 0) + index * 1000);
+            notificationStore.add('finalizado', {
+              codigo: ticket.codigo,
+              assunto: ticket.assunto,
+              nome: ticket.nome,
+              nome_fantasia: ticket.nome_fantasia,
+            }, 10000);
+          }, (novosChamados.length > 0 ? 4000 : 0) + index * 800);
         });
-
-        // Se houver mais de 3, mostrar um resumo
-        if (newFinalizados.length > 3) {
-          setTimeout(() => {
-            toast({
-              title: `📋 +${newFinalizados.length - 3} outros finalizados`,
-              description: 'Múltiplos chamados foram concluídos',
-              duration: 4000,
-            });
-          }, (novosChamados.length > 0 ? 4000 : 0) + 3500);
-        }
 
         // Falar o primeiro finalizado (com delay se tiver novos chamados)
         setTimeout(() => {
