@@ -455,6 +455,10 @@ export default function Home() {
   // Estado para Top 3 de pesquisas avaliadas
   const [rankingPesquisas, setRankingPesquisas] = useState<Array<{ operador: string; quantidade: number }>>([]);
 
+  // Rastrear pesquisas já vistas para detectar novas (usando ticket como chave única)
+  const previousPesquisaTicketsRef = useRef<Set<string>>(new Set());
+  const pesquisasInitializedRef = useRef<boolean>(false);
+
   // Função para buscar pesquisas de satisfação
   const fetchPesquisas = async () => {
     try {
@@ -465,6 +469,98 @@ export default function Home() {
       if (!response.ok) return;
       const data = await response.json();
       const pesquisas = data?.lista || [];
+
+      // Detectar NOVAS pesquisas de satisfação (que não existiam no polling anterior)
+      const currentPesquisaTickets = new Set<string>();
+      const novasPesquisas: Array<{ ticket: string; razao_social: string; operador: string; nota: string; contato: string; descricao_avaliacao: string }> = [];
+
+      pesquisas.forEach((p: any) => {
+        if (p.ticket_excluido === 'Sim') return;
+        // Usar ticket + data_avaliacao como chave única (mesmo ticket pode ter múltiplas pesquisas)
+        const chave = `${p.ticket || ''}_${p.data_avaliacao || ''}`;
+        if (chave && p.nota) {
+          currentPesquisaTickets.add(chave);
+        }
+      });
+
+      if (pesquisasInitializedRef.current) {
+        // Encontrar pesquisas que não existiam antes
+        pesquisas.forEach((p: any) => {
+          if (p.ticket_excluido === 'Sim') return;
+          const chave = `${p.ticket || ''}_${p.data_avaliacao || ''}`;
+          if (chave && p.nota && !previousPesquisaTicketsRef.current.has(chave)) {
+            console.log('⭐ NOVA PESQUISA DE SATISFAÇÃO:', p.ticket, '- Operador:', p.operador, '- Nota:', p.nota);
+            novasPesquisas.push({
+              ticket: p.ticket || '',
+              razao_social: p.razao_social || '',
+              operador: p.operador || '',
+              nota: p.nota || '',
+              contato: p.contato || '',
+              descricao_avaliacao: p.descricao_avaliacao || '',
+            });
+          }
+        });
+      } else {
+        console.log('📋 Pesquisas - Primeira execução, inicializando base com', currentPesquisaTickets.size, 'pesquisas');
+        pesquisasInitializedRef.current = true;
+      }
+
+      // Atualizar ref para próxima comparação
+      previousPesquisaTicketsRef.current = currentPesquisaTickets;
+
+      // Disparar notificações para novas pesquisas
+      if (novasPesquisas.length > 0) {
+        console.log('⭐ Total de novas pesquisas detectadas:', novasPesquisas.length);
+
+        // Som de pesquisa (melodia harmônica positiva)
+        try {
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const playTone = (startTime: number, frequency: number, duration: number) => {
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            osc.connect(gain);
+            gain.connect(audioContext.destination);
+            osc.frequency.value = frequency;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.15, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            osc.start(startTime);
+            osc.stop(startTime + duration);
+          };
+          const now = audioContext.currentTime;
+          playTone(now, 523, 0.15);       // C5
+          playTone(now + 0.12, 659, 0.15); // E5
+          playTone(now + 0.24, 784, 0.15); // G5
+          playTone(now + 0.36, 1047, 0.15); // C6
+          playTone(now + 0.5, 784, 0.25);  // G5
+        } catch (e) { console.log('Audio não suportado'); }
+
+        // Cards visuais (máximo 3)
+        novasPesquisas.slice(0, 3).forEach((pesquisa, index) => {
+          setTimeout(() => {
+            notificationStore.add('pesquisa_satisfacao', {
+              ticket: pesquisa.ticket,
+              razao_social: pesquisa.razao_social,
+              operador: pesquisa.operador,
+              nota: pesquisa.nota,
+              contato: pesquisa.contato,
+              descricao_avaliacao: pesquisa.descricao_avaliacao,
+            }, 12000);
+          }, index * 800);
+        });
+
+        // Voz
+        setTimeout(() => {
+          const primeira = novasPesquisas[0];
+          const cliente = primeira.razao_social || primeira.contato || 'um cliente';
+          const operador = primeira.operador || 'um operador';
+          if (novasPesquisas.length === 1) {
+            speakAnnouncement(`Atenção! O cliente ${cliente} respondeu a pesquisa de satisfação de um dos chamados do Operador ${operador}`);
+          } else {
+            speakAnnouncement(`Atenção! ${novasPesquisas.length} novas pesquisas de satisfação foram respondidas!`);
+          }
+        }, 500);
+      }
 
       // Calcular ranking por quantidade de pesquisas avaliadas (com nota)
       // Também calcula a média para usar como critério de desempate

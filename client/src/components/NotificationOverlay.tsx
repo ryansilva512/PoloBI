@@ -21,11 +21,13 @@ import {
     UserCheck,
     Timer,
     Siren,
+    MessageSquareHeart,
+    Star,
 } from "lucide-react";
 
 // ===================== TYPES =====================
 
-export type NotificationType = "novo_chamado" | "finalizado" | "chamado_atribuido" | "erro_milvus" | "sla_aviso" | "sla_estourado";
+export type NotificationType = "novo_chamado" | "finalizado" | "chamado_atribuido" | "erro_milvus" | "sla_aviso" | "sla_estourado" | "pesquisa_satisfacao";
 
 export interface NovoChamadoData {
     codigo: number;
@@ -71,10 +73,19 @@ export interface SLAEstouradoData {
     nome_fantasia?: string;
 }
 
+export interface PesquisaSatisfacaoData {
+    ticket: string;
+    razao_social?: string;
+    operador?: string;
+    nota?: string;
+    contato?: string;
+    descricao_avaliacao?: string;
+}
+
 export interface AppNotification {
     id: string;
     type: NotificationType;
-    data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData | SLAAvisoData | SLAEstouradoData;
+    data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData | SLAAvisoData | SLAEstouradoData | PesquisaSatisfacaoData;
     createdAt: number;
     duration: number; // ms
 }
@@ -90,7 +101,7 @@ class NotificationStore {
 
     add(
         type: NotificationType,
-        data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData | SLAAvisoData | SLAEstouradoData,
+        data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData | SLAAvisoData | SLAEstouradoData | PesquisaSatisfacaoData,
         duration = 10000
     ) {
         const id = `notif-${++this.counter}-${Date.now()}`;
@@ -581,6 +592,125 @@ function NotificationCard({
                 );
             }
 
+            case "pesquisa_satisfacao": {
+                const d = notification.data as PesquisaSatisfacaoData;
+                const operadorNome = d.operador || "Operador";
+                const notaNum = d.nota ? parseFloat(d.nota.replace(',', '.')) : 0;
+                const estrelas = Math.round(notaNum);
+                return (
+                    <>
+                        {/* Header */}
+                        <div className="flex items-center gap-5 mb-6">
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-violet-500/30 to-purple-500/30 shrink-0">
+                                <MessageSquareHeart className="h-10 w-10 text-violet-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-2xl font-black text-violet-300 truncate">
+                                    ⭐ Pesquisa de Satisfação!
+                                </h3>
+                                <p className="text-sm text-slate-400 font-medium">
+                                    {new Date().toLocaleString("pt-BR")}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Body with operator avatar */}
+                        <div className="flex items-center gap-6 mb-6 p-5 rounded-2xl bg-violet-500/10 border border-violet-500/20">
+                            <Avatar className="h-20 w-20 ring-4 ring-violet-500/40 ring-offset-4 ring-offset-slate-900 shrink-0">
+                                <AvatarImage
+                                    src={getAvatarSrc(operadorNome)}
+                                    alt={operadorNome}
+                                />
+                                <AvatarFallback className="bg-gradient-to-br from-violet-600 to-purple-700 text-white font-black text-2xl">
+                                    {operadorNome.slice(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                                <p className="text-xs uppercase text-violet-400/70 font-bold tracking-widest">
+                                    Operador avaliado
+                                </p>
+                                <p className="text-2xl font-black text-violet-300 truncate">
+                                    {operadorNome}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 pl-1">
+                            {d.razao_social && (
+                                <div className="flex items-start gap-3">
+                                    <Building2 className="h-6 w-6 text-violet-400/70 mt-0.5 shrink-0" />
+                                    <div className="min-w-0">
+                                        <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                            Cliente
+                                        </span>
+                                        <p className="text-xl font-bold text-slate-200 break-words leading-tight">
+                                            {d.razao_social}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {d.ticket && (
+                                <div className="flex items-start gap-3">
+                                    <Hash className="h-6 w-6 text-violet-400/70 mt-0.5 shrink-0" />
+                                    <div>
+                                        <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                            Ticket
+                                        </span>
+                                        <p className="text-xl font-black text-white">
+                                            #{d.ticket}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {d.nota && (
+                                <div className="flex items-start gap-3">
+                                    <Star className="h-6 w-6 text-violet-400/70 mt-0.5 shrink-0" />
+                                    <div>
+                                        <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                            Nota
+                                        </span>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <div className="flex gap-0.5">
+                                                {[1, 2, 3, 4, 5].map((i) => (
+                                                    <Star
+                                                        key={i}
+                                                        className={cn(
+                                                            "h-6 w-6",
+                                                            i <= estrelas
+                                                                ? "text-yellow-400 fill-yellow-400"
+                                                                : "text-slate-600"
+                                                        )}
+                                                    />
+                                                ))}
+                                            </div>
+                                            <span className="text-xl font-black text-yellow-300 ml-2">
+                                                {d.nota}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {d.descricao_avaliacao && (
+                                <div className="flex items-start gap-3">
+                                    <MessageSquareHeart className="h-6 w-6 text-violet-400/70 mt-0.5 shrink-0" />
+                                    <div className="min-w-0">
+                                        <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                            Comentário
+                                        </span>
+                                        <p className="text-base text-slate-300 font-medium italic break-words leading-relaxed">
+                                            "{d.descricao_avaliacao}"
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                );
+            }
+
             case "erro_milvus": {
                 const d = notification.data as ErroMilvusData;
                 return (
@@ -644,6 +774,7 @@ function NotificationCard({
         erro_milvus: "border-red-500/40",
         sla_aviso: "border-orange-500/50",
         sla_estourado: "border-red-600/60",
+        pesquisa_satisfacao: "border-violet-500/40",
     }[notification.type];
 
     const glowColor = {
@@ -653,6 +784,7 @@ function NotificationCard({
         erro_milvus: "shadow-red-500/20",
         sla_aviso: "shadow-orange-500/30",
         sla_estourado: "shadow-red-600/40",
+        pesquisa_satisfacao: "shadow-violet-500/20",
     }[notification.type];
 
     const progressColor = {
@@ -662,6 +794,7 @@ function NotificationCard({
         erro_milvus: "bg-red-500",
         sla_aviso: "bg-orange-500",
         sla_estourado: "bg-red-600",
+        pesquisa_satisfacao: "bg-violet-500",
     }[notification.type];
 
     return (
