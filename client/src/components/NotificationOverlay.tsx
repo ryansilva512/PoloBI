@@ -19,11 +19,13 @@ import {
     Briefcase,
     ServerCrash,
     UserCheck,
+    Timer,
+    Siren,
 } from "lucide-react";
 
 // ===================== TYPES =====================
 
-export type NotificationType = "novo_chamado" | "finalizado" | "chamado_atribuido" | "erro_milvus";
+export type NotificationType = "novo_chamado" | "finalizado" | "chamado_atribuido" | "erro_milvus" | "sla_aviso" | "sla_estourado";
 
 export interface NovoChamadoData {
     codigo: number;
@@ -56,10 +58,23 @@ export interface ErroMilvusData {
     timestamp?: string;
 }
 
+export interface SLAAvisoData {
+    codigo: number;
+    assunto: string;
+    nome_fantasia?: string;
+    minutos: number; // 4 ou 5
+}
+
+export interface SLAEstouradoData {
+    codigo: number;
+    assunto: string;
+    nome_fantasia?: string;
+}
+
 export interface AppNotification {
     id: string;
     type: NotificationType;
-    data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData;
+    data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData | SLAAvisoData | SLAEstouradoData;
     createdAt: number;
     duration: number; // ms
 }
@@ -75,7 +90,7 @@ class NotificationStore {
 
     add(
         type: NotificationType,
-        data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData,
+        data: NovoChamadoData | FinalizadoData | ChamadoAtribuidoData | ErroMilvusData | SLAAvisoData | SLAEstouradoData,
         duration = 10000
     ) {
         const id = `notif-${++this.counter}-${Date.now()}`;
@@ -440,6 +455,132 @@ function NotificationCard({
                 );
             }
 
+            case "sla_aviso": {
+                const d = notification.data as SLAAvisoData;
+                return (
+                    <>
+                        {/* Header */}
+                        <div className="flex items-center gap-5 mb-6">
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-orange-500/30 to-yellow-500/30 shrink-0 animate-pulse">
+                                <Timer className="h-10 w-10 text-orange-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-2xl font-black text-orange-300 truncate">
+                                    ⚠️ ALERTA! ALERTA! ALERTA!
+                                </h3>
+                                <p className="text-sm text-orange-400/80 font-bold">
+                                    SLA Primeiro Atendimento - Prestes a estourar!
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-5 rounded-2xl bg-orange-500/10 border-2 border-orange-500/30 mb-4 animate-pulse">
+                            <p className="text-lg font-bold text-orange-200 leading-relaxed">
+                                O chamado do cliente{" "}
+                                <span className="text-orange-300 font-black">
+                                    {d.nome_fantasia || "Desconhecido"}
+                                </span>
+                                {" "}com o assunto{" "}
+                                <span className="text-orange-300 font-black">
+                                    {d.assunto}
+                                </span>
+                                {" "}está para estourar!
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 pl-1">
+                            <div className="flex items-start gap-3">
+                                <Hash className="h-6 w-6 text-orange-400/70 mt-0.5 shrink-0" />
+                                <div>
+                                    <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                        Código
+                                    </span>
+                                    <p className="text-xl font-black text-white">
+                                        #{d.codigo}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <Clock className="h-6 w-6 text-orange-400/70 shrink-0" />
+                                <div>
+                                    <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                        Tempo sem atendimento
+                                    </span>
+                                    <p className="text-xl font-black text-orange-300">
+                                        {d.minutos} minutos
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                );
+            }
+
+            case "sla_estourado": {
+                const d = notification.data as SLAEstouradoData;
+                return (
+                    <>
+                        {/* Header */}
+                        <div className="flex items-center gap-5 mb-6">
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-red-600/40 to-rose-500/40 shrink-0 animate-pulse">
+                                <Siren className="h-10 w-10 text-red-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-2xl font-black text-red-300 truncate">
+                                    🚨 ALERTA! ALERTA! ALERTA!
+                                </h3>
+                                <p className="text-sm text-red-400 font-black uppercase tracking-wider">
+                                    ALERTA DE SLA Primeiro Atendimento
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-5 rounded-2xl bg-red-500/15 border-2 border-red-500/40 mb-4 animate-pulse">
+                            <p className="text-lg font-bold text-red-200 leading-relaxed">
+                                O chamado do cliente{" "}
+                                <span className="text-red-300 font-black">
+                                    {d.nome_fantasia || "Desconhecido"}
+                                </span>
+                                {" "}com o assunto{" "}
+                                <span className="text-red-300 font-black">
+                                    {d.assunto}
+                                </span>
+                                {" "}já estourou!
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 pl-1">
+                            <div className="flex items-start gap-3">
+                                <Hash className="h-6 w-6 text-red-400/70 mt-0.5 shrink-0" />
+                                <div>
+                                    <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                        Código
+                                    </span>
+                                    <p className="text-xl font-black text-white">
+                                        #{d.codigo}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <Clock className="h-6 w-6 text-red-400/70 shrink-0" />
+                                <div>
+                                    <span className="text-xs uppercase text-slate-500 font-bold tracking-widest">
+                                        Tempo sem atendimento
+                                    </span>
+                                    <p className="text-xl font-black text-red-300">
+                                        +5 minutos — SLA ESTOURADO
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                );
+            }
+
             case "erro_milvus": {
                 const d = notification.data as ErroMilvusData;
                 return (
@@ -501,6 +642,8 @@ function NotificationCard({
         finalizado: "border-emerald-500/40",
         chamado_atribuido: "border-amber-500/40",
         erro_milvus: "border-red-500/40",
+        sla_aviso: "border-orange-500/50",
+        sla_estourado: "border-red-600/60",
     }[notification.type];
 
     const glowColor = {
@@ -508,6 +651,8 @@ function NotificationCard({
         finalizado: "shadow-emerald-500/20",
         chamado_atribuido: "shadow-amber-500/20",
         erro_milvus: "shadow-red-500/20",
+        sla_aviso: "shadow-orange-500/30",
+        sla_estourado: "shadow-red-600/40",
     }[notification.type];
 
     const progressColor = {
@@ -515,6 +660,8 @@ function NotificationCard({
         finalizado: "bg-emerald-500",
         chamado_atribuido: "bg-amber-500",
         erro_milvus: "bg-red-500",
+        sla_aviso: "bg-orange-500",
+        sla_estourado: "bg-red-600",
     }[notification.type];
 
     return (

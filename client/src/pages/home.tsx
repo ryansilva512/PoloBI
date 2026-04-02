@@ -359,6 +359,10 @@ export default function Home() {
   // Mapa para rastrear técnico atribuído por chamado: { codigo: tecnico }
   const previousTicketTecnicosRef = useRef<Map<number, string>>(new Map());
 
+  // SLA Primeiro Atendimento: timers para chamados sem operador
+  // Cada entrada guarda os IDs dos timeouts de 4min (aviso) e 5min (estourado)
+  const slaTimersRef = useRef<Map<number, { avisoTimer: ReturnType<typeof setTimeout> | null; estouradoTimer: ReturnType<typeof setTimeout> | null }>>(new Map());
+
   // Ref para rastrear se houve erro de API recente (evitar falsos positivos de finalização)
   const hadApiErrorRef = useRef<boolean>(false);
 
@@ -1159,6 +1163,146 @@ export default function Home() {
         }, 300);
       }
 
+      // 4.1 SLA Primeiro Atendimento — iniciar timers para chamados SEM operador
+      if (novosChamados.length > 0) {
+        novosChamados.forEach((ticket) => {
+          const tecnico = (ticket.nome || '').trim();
+          const semOperador = !tecnico || tecnico === 'Não atribuído';
+
+          if (semOperador && !slaTimersRef.current.has(ticket.codigo)) {
+            console.log('⏱️ SLA Timer iniciado para chamado', ticket.codigo, '- sem operador');
+
+            const cliente = ticket.nome_fantasia || 'Desconhecido';
+            const assunto = ticket.assunto || 'Sem assunto';
+            const codigo = ticket.codigo;
+
+            // Timer de 4 minutos — AVISO (prestes a estourar)
+            const avisoTimer = setTimeout(() => {
+              // Verificar se o chamado ainda não foi atribuído
+              const currentTimers = slaTimersRef.current.get(codigo);
+              if (!currentTimers) return; // já foi cancelado (operador pegou)
+
+              console.log('⚠️ SLA AVISO (4 min) — Chamado', codigo);
+
+              // Som de alerta urgente
+              try {
+                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const playTone = (startTime: number, frequency: number, duration: number) => {
+                  const osc = audioContext.createOscillator();
+                  const gain = audioContext.createGain();
+                  osc.connect(gain);
+                  gain.connect(audioContext.destination);
+                  osc.frequency.value = frequency;
+                  osc.type = 'sawtooth';
+                  gain.gain.setValueAtTime(0.25, startTime);
+                  gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+                  osc.start(startTime);
+                  osc.stop(startTime + duration);
+                };
+                const now = audioContext.currentTime;
+                playTone(now, 880, 0.2);
+                playTone(now + 0.25, 880, 0.2);
+                playTone(now + 0.5, 1100, 0.3);
+              } catch (e) { console.log('Audio não suportado'); }
+
+              // Card visual
+              notificationStore.add('sla_aviso', {
+                codigo,
+                assunto,
+                nome_fantasia: cliente,
+                minutos: 4,
+              }, 15000);
+
+              // Voz
+              setTimeout(() => {
+                speakAnnouncement(`ALERTA! ALERTA! ALERTA! O chamado do cliente ${cliente} com o assunto ${assunto} está para estourar!`);
+              }, 500);
+            }, 4 * 60 * 1000); // 4 minutos
+
+            // Timer de 5 minutos — SLA ESTOURADO
+            const estouradoTimer = setTimeout(() => {
+              const currentTimers = slaTimersRef.current.get(codigo);
+              if (!currentTimers) return;
+
+              console.log('🚨 SLA ESTOURADO (5 min) — Chamado', codigo);
+
+              // Som de alerta crítico
+              try {
+                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const playTone = (startTime: number, frequency: number, duration: number) => {
+                  const osc = audioContext.createOscillator();
+                  const gain = audioContext.createGain();
+                  osc.connect(gain);
+                  gain.connect(audioContext.destination);
+                  osc.frequency.value = frequency;
+                  osc.type = 'square';
+                  gain.gain.setValueAtTime(0.3, startTime);
+                  gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+                  osc.start(startTime);
+                  osc.stop(startTime + duration);
+                };
+                const now = audioContext.currentTime;
+                playTone(now, 600, 0.15);
+                playTone(now + 0.2, 800, 0.15);
+                playTone(now + 0.4, 600, 0.15);
+                playTone(now + 0.6, 800, 0.15);
+                playTone(now + 0.8, 1000, 0.4);
+              } catch (e) { console.log('Audio não suportado'); }
+
+              // Card visual
+              notificationStore.add('sla_estourado', {
+                codigo,
+                assunto,
+                nome_fantasia: cliente,
+              }, 20000);
+
+              // Voz
+              setTimeout(() => {
+                speakAnnouncement(`ALERTA! ALERTA! ALERTA! O chamado do cliente ${cliente} com o assunto ${assunto} já estourou! ALERTA DE SLA Primeiro Atendimento!`);
+              }, 500);
+
+              // Limpar timers (já dispararam)
+              slaTimersRef.current.delete(codigo);
+            }, 5 * 60 * 1000); // 5 minutos
+
+            slaTimersRef.current.set(codigo, { avisoTimer, estouradoTimer });
+          }
+        });
+      }
+
+      // 4.2 SLA — Também verificar chamados abertos existentes que ainda não têm operador
+      // (caso o chamado já existisse antes do dashboard abrir e ainda não tenha sido pego)
+      if (openTicketsInitializedRef.current) {
+        openTickets.forEach((ticket: any) => {
+          const codigo = ticket.codigo || ticket.id;
+          const tecnico = (ticket.tecnico || '').trim();
+          const semOperador = !tecnico || tecnico === 'Não atribuído';
+
+          // Se tem operador e existe timer ativo, cancelar (operador pegou antes)
+          if (!semOperador && slaTimersRef.current.has(codigo)) {
+            const timers = slaTimersRef.current.get(codigo)!;
+            if (timers.avisoTimer) clearTimeout(timers.avisoTimer);
+            if (timers.estouradoTimer) clearTimeout(timers.estouradoTimer);
+            slaTimersRef.current.delete(codigo);
+            console.log('✅ SLA Timer cancelado — operador pegou chamado', codigo);
+          }
+
+          // Se o chamado foi finalizado (saiu da lista), também limpar
+        });
+
+        // Limpar timers de chamados que não estão mais na lista (finalizados)
+        const currentOpenIds = new Set<number>(openTickets.map((t: any) => t.codigo || t.id));
+        slaTimersRef.current.forEach((_, codigo) => {
+          if (!currentOpenIds.has(codigo)) {
+            const timers = slaTimersRef.current.get(codigo)!;
+            if (timers.avisoTimer) clearTimeout(timers.avisoTimer);
+            if (timers.estouradoTimer) clearTimeout(timers.estouradoTimer);
+            slaTimersRef.current.delete(codigo);
+            console.log('✅ SLA Timer cancelado — chamado', codigo, 'não está mais aberto');
+          }
+        });
+      }
+
       // 4.5 Detectar quando operador PEGA um chamado (tecnico muda de vazio para atribuído)
       const chamadosAtribuidos: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
 
@@ -1177,6 +1321,15 @@ export default function Home() {
               nome: tecnicoAtual,
               nome_fantasia: ticket.nome_fantasia || ticket.cliente || 'Cliente',
             });
+
+            // Cancelar timers SLA para este chamado (operador pegou!)
+            if (slaTimersRef.current.has(codigo)) {
+              const timers = slaTimersRef.current.get(codigo)!;
+              if (timers.avisoTimer) clearTimeout(timers.avisoTimer);
+              if (timers.estouradoTimer) clearTimeout(timers.estouradoTimer);
+              slaTimersRef.current.delete(codigo);
+              console.log('✅ SLA Timer cancelado (via atribuição) — chamado', codigo);
+            }
           }
         });
       }
