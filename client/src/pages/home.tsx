@@ -470,26 +470,37 @@ export default function Home() {
       const data = await response.json();
       const pesquisas = data?.lista || [];
 
-      // Detectar NOVAS pesquisas de satisfação (que não existiam no polling anterior)
-      const currentPesquisaTickets = new Set<string>();
+      // Detectar NOVAS pesquisas de satisfação respondidas
+      // Chave única: ticket + nota + operador (identifica avaliação específica)
+      const currentPesquisaKeys = new Set<string>();
       const novasPesquisas: Array<{ ticket: string; razao_social: string; operador: string; nota: string; contato: string; descricao_avaliacao: string }> = [];
+
+      // Helper: verificar se data_avaliacao é de hoje
+      const isHoje = (dataStr: string): boolean => {
+        if (!dataStr) return false;
+        const hoje = new Date();
+        const hojeStr = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
+        // Formato esperado: "DD/MM/YYYY HH:MM" ou "DD/MM/YYYY"
+        return dataStr.startsWith(hojeStr);
+      };
 
       pesquisas.forEach((p: any) => {
         if (p.ticket_excluido === 'Sim') return;
-        // Usar ticket + data_avaliacao como chave única (mesmo ticket pode ter múltiplas pesquisas)
-        const chave = `${p.ticket || ''}_${p.data_avaliacao || ''}`;
-        if (chave && p.nota) {
-          currentPesquisaTickets.add(chave);
-        }
+        if (!p.nota || !p.ticket) return; // Sem nota = não foi avaliado ainda
+        const chave = `${p.ticket}_${p.operador || ''}_${p.nota}_${p.data_avaliacao || ''}`;
+        currentPesquisaKeys.add(chave);
       });
 
       if (pesquisasInitializedRef.current) {
-        // Encontrar pesquisas que não existiam antes
+        // Encontrar pesquisas que não existiam no polling anterior
         pesquisas.forEach((p: any) => {
           if (p.ticket_excluido === 'Sim') return;
-          const chave = `${p.ticket || ''}_${p.data_avaliacao || ''}`;
-          if (chave && p.nota && !previousPesquisaTicketsRef.current.has(chave)) {
-            console.log('⭐ NOVA PESQUISA DE SATISFAÇÃO:', p.ticket, '- Operador:', p.operador, '- Nota:', p.nota);
+          if (!p.nota || !p.ticket) return;
+          const chave = `${p.ticket}_${p.operador || ''}_${p.nota}_${p.data_avaliacao || ''}`;
+
+          // Só notificar se: (1) não existia antes E (2) a avaliação é de HOJE
+          if (!previousPesquisaTicketsRef.current.has(chave) && isHoje(p.data_avaliacao)) {
+            console.log('⭐ NOVA PESQUISA DE SATISFAÇÃO:', p.ticket, '- Operador:', p.operador, '- Nota:', p.nota, '- Data:', p.data_avaliacao);
             novasPesquisas.push({
               ticket: p.ticket || '',
               razao_social: p.razao_social || '',
@@ -501,12 +512,12 @@ export default function Home() {
           }
         });
       } else {
-        console.log('📋 Pesquisas - Primeira execução, inicializando base com', currentPesquisaTickets.size, 'pesquisas');
+        console.log('📋 Pesquisas - Primeira execução, inicializando base com', currentPesquisaKeys.size, 'pesquisas');
         pesquisasInitializedRef.current = true;
       }
 
       // Atualizar ref para próxima comparação
-      previousPesquisaTicketsRef.current = currentPesquisaTickets;
+      previousPesquisaTicketsRef.current = currentPesquisaKeys;
 
       // Disparar notificações para novas pesquisas
       if (novasPesquisas.length > 0) {
