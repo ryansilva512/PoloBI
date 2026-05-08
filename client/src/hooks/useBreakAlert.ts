@@ -21,6 +21,12 @@ const MUSIC_SONGS = [
     { name: 'Iron Maiden - The Trooper', paths: ['/music/iron-maiden-the-trooper.mp3', '/music/iron-maiden-the-trooper.mpeg'] },
     { name: 'Limp Bizkit - Break Stuff', paths: ['/music/limp-bizkit-break-stuff.mp3', '/music/limp-bizkit-break-stuff.mpeg'] },
     { name: 'Skillet - Hero', paths: ['/music/skillet-hero.mp3', '/music/skillet-hero.mpeg'] },
+    { name: 'Skillet - Monster', paths: ['/music/skillet-monster.mp3', '/music/skillet-monster.mpeg'] },
+    { name: 'Linkin Park - Numb', paths: ['/music/linkin-park-numb.mp3', '/music/linkin-park-numb.mpeg'] },
+    { name: 'Queen - We Are Champions', paths: ['/music/queen-we-are-champions.mp3', '/music/queen-we-are-champions.mpeg'] },
+    { name: 'Queen - We Will Rock You', paths: ['/music/queen-we-will-rock-you.mp3', '/music/queen-we-will-rock-you.mpeg'] },
+    { name: 'Saliva - They Dont Care About Us', paths: ['/music/saliva-they-dont-care-about-us.mp3', '/music/saliva-they-dont-care-about-us.mpeg'] },
+    { name: 'System of a Down - P.L.U.C.K.', paths: ['/music/system-of-a-down-pluck.mp3', '/music/system-of-a-down-pluck.mpeg'] },
 ];
 
 type BreakPhase = 'idle' | 'break' | 'return';
