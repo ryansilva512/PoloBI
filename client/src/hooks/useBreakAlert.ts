@@ -31,6 +31,29 @@ const MUSIC_SONGS = [
 
 type BreakPhase = 'idle' | 'break' | 'return';
 
+// Helpers para controlar músicas já tocadas no dia
+const getTodayKey = () => {
+    const d = new Date();
+    return `break-played-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const getPlayedToday = (): Set<string> => {
+    try {
+        const raw = localStorage.getItem(getTodayKey());
+        return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+        return new Set();
+    }
+};
+
+const markSongPlayed = (name: string) => {
+    try {
+        const played = getPlayedToday();
+        played.add(name);
+        localStorage.setItem(getTodayKey(), JSON.stringify([...played]));
+    } catch { /* ignore */ }
+};
+
 export function useBreakAlert() {
     const [phase, setPhase] = useState<BreakPhase>('idle');
     const [enabled, setEnabled] = useState<boolean>(() => {
@@ -183,7 +206,7 @@ export function useBreakAlert() {
         }
     }, []);
 
-    // Iniciar música (escolhe aleatoriamente)
+    // Iniciar música (escolhe aleatoriamente, sem repetir no mesmo dia)
     const startMusic = useCallback(() => {
         console.log('🎵 startMusic chamado');
         try {
@@ -193,12 +216,24 @@ export function useBreakAlert() {
                 return;
             }
 
-            // Escolher aleatoriamente
-            const randomIndex = Math.floor(Math.random() * songs.length);
-            const audio = songs[randomIndex];
+            // Filtrar músicas que ainda não tocaram hoje
+            const playedToday = getPlayedToday();
+            let available = songs.filter(a => !playedToday.has(a.dataset.songName || ''));
+
+            // Se todas já tocaram hoje, resetar e usar todas
+            if (available.length === 0) {
+                console.log('🎵 Todas as músicas já tocaram hoje, reiniciando lista!');
+                localStorage.removeItem(getTodayKey());
+                available = songs;
+            }
+
+            // Escolher aleatoriamente entre as disponíveis
+            const randomIndex = Math.floor(Math.random() * available.length);
+            const audio = available[randomIndex];
             const songName = audio.dataset.songName || 'Desconhecida';
 
-            console.log(`🎵 Sorteada: "${songName}" (${randomIndex + 1}/${songs.length})`);
+            console.log(`🎵 Sorteada: "${songName}" (${available.length} disponíveis hoje)`);
+            markSongPlayed(songName);
             setCurrentSong(songName);
 
             // Parar qualquer música anterior
