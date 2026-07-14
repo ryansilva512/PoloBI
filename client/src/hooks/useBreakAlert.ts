@@ -30,6 +30,7 @@ const MUSIC_SONGS = [
     { name: 'Architects - Impermanence', paths: ['/music/architects-impermanence.mp3', '/music/architects-impermanence.mpeg'] },
     { name: "Bon Jovi - Livin' on a Prayer", paths: ['/music/bon-jovi-livin-on-a-prayer.mp3', '/music/bon-jovi-livin-on-a-prayer.mpeg'] },
     { name: 'De Los Cerros - La Escuela Beretta', paths: ['/music/de-los-cerros-la-escuela-beretta.mp3', '/music/de-los-cerros-la-escuela-beretta.mpeg'] },
+    { name: 'Oasis - Wonderwall', paths: ['/music/oasis-wonderall.mp3', '/music/oasis-wonderall.mpeg'] },
 ];
 
 type BreakPhase = 'idle' | 'break' | 'return';
