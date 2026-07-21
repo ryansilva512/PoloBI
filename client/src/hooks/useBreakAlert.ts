@@ -31,6 +31,9 @@ const MUSIC_SONGS = [
     { name: "Bon Jovi - Livin' on a Prayer", paths: ['/music/bon-jovi-livin-on-a-prayer.mp3', '/music/bon-jovi-livin-on-a-prayer.mpeg'] },
     { name: 'De Los Cerros - La Escuela Beretta', paths: ['/music/de-los-cerros-la-escuela-beretta.mp3', '/music/de-los-cerros-la-escuela-beretta.mpeg'] },
     { name: 'Oasis - Wonderwall', paths: ['/music/oasis-wonderall.mp3', '/music/oasis-wonderall.mpeg'] },
+    { name: 'Bring Me The Horizon - Shadow Moses', paths: ['/music/whatsapp-audio-2026-07-21-174146.mp3', '/music/whatsapp-audio-2026-07-21-174146.mpeg'] },
+    { name: "Gerry & The Pacemakers - You'll Never Walk Alone", paths: ['/music/whatsapp-audio-2026-07-21-174148.mp3', '/music/whatsapp-audio-2026-07-21-174148.mpeg'] },
+    { name: 'Avenged Sevenfold - Hail to the King', paths: ['/music/whatsapp-audio-2026-07-21-174149.mp3', '/music/whatsapp-audio-2026-07-21-174149.mpeg'] },
 ];
 
 type BreakPhase = 'idle' | 'break' | 'return';
