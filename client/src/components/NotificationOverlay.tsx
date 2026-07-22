@@ -799,8 +799,11 @@ function NotificationCard({
 
     return (
         <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
             className={cn(
-                "relative w-[700px] max-w-[calc(100vw-4rem)] rounded-3xl border-4 backdrop-blur-2xl bg-slate-900/95 shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-500",
+                "relative max-h-[calc(100dvh-1rem)] w-[700px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl border-2 bg-slate-900/95 shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] backdrop-blur-2xl transition-all duration-500 sm:rounded-3xl sm:border-4",
                 borderColor,
                 glowColor,
                 exiting
@@ -811,16 +814,17 @@ function NotificationCard({
             {/* Close button */}
             <button
                 onClick={handleDismiss}
+                aria-label="Fechar notificação"
                 className="absolute top-5 right-5 z-10 p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
             >
                 <X className="h-6 w-6" />
             </button>
 
             {/* Content */}
-            <div className="p-10 pr-14">{renderContent()}</div>
+            <div className="p-5 pr-14 sm:p-10 sm:pr-14">{renderContent()}</div>
 
             {/* Progress bar */}
-            <div className="h-1 bg-white/5">
+            <div className="h-1 bg-white/5" aria-hidden="true">
                 <div
                     className={cn("h-full transition-none", progressColor)}
                     style={{ width: `${progress}%` }}
@@ -854,8 +858,8 @@ export function NotificationOverlay() {
     if (notifications.length === 0) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none">
-            <div className="flex flex-col gap-6 pointer-events-none max-h-screen overflow-hidden p-4">
+        <div className="pointer-events-none fixed inset-0 z-[200] flex items-center justify-center" role="region" aria-label="Notificações do sistema">
+            <div className="pointer-events-none flex max-h-[100dvh] flex-col gap-3 overflow-y-auto p-2 sm:gap-6 sm:p-4">
                 {notifications.slice(0, 2).map((notification) => (
                     <div key={notification.id} className="pointer-events-auto">
                         <NotificationCard

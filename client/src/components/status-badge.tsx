@@ -12,7 +12,7 @@ interface StatusBadgeProps {
 const statusLabels: Record<TicketStatus, string> = {
   aberto: "Aberto",
   em_andamento: "Em Andamento",
-  resolvido: "Resolvido",
+  finalizado: "Finalizado",
   agendado: "Agendado",
 };
 
@@ -40,7 +40,7 @@ export function StatusBadge({ tipo, valor, tamanho = "md", className }: StatusBa
         ? "bg-primary/10 text-primary border-primary/20"
         : status === "em_andamento"
         ? "bg-warning/10 text-warning border-warning/20"
-        : status === "resolvido"
+        : status === "finalizado"
         ? "bg-success/10 text-success border-success/20"
         : "bg-muted text-muted-foreground border-muted";
   } else if (tipo === "prioridade") {

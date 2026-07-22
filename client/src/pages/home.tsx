@@ -62,6 +62,7 @@ import {
 import jsPDF from "jspdf";
 import { newTicketsStore } from "@/stores/newTicketsStore";
 import { notificationStore } from "@/components/NotificationOverlay";
+import { ManagementDashboard } from "@/components/management-dashboard";
 
 const META_RESPOSTA_MINUTOS = 5;
 const META_ATENDIMENTO_HORAS = 4;
@@ -176,11 +177,44 @@ const parseDataPesquisa = (value?: string | null) => {
   return null;
 };
 
-export default function Home() {
+export type HomeMode = "dashboard" | "management";
+
+interface HomeProps {
+  mode?: HomeMode;
+}
+
+const MANAGEMENT_REFRESH_INTERVAL = 30_000;
+const MANAGEMENT_SOUND_KEY = "polo-bi-management-sound-enabled";
+const MANAGEMENT_SOUND_EVENT = "polo-bi:management-sound-change";
+
+export default function Home({ mode = "dashboard" }: HomeProps) {
+  const isManagement = mode === "management";
   const { filters, updateFilters } = useFilters();
-  const { data: ticketsResponse, isLoading, refetch } = useTicketsData(filters, true);
+  const { data: ticketsResponse, isLoading, isError, error, refetch, isFetching } = useTicketsData(filters, true);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const soundEnabledRef = useRef(
+    !isManagement || localStorage.getItem(MANAGEMENT_SOUND_KEY) !== "false"
+  );
+
+  const canPresentRealtimeAlert = () => document.visibilityState === "visible";
+  const canPlayRealtimeAudio = () =>
+    canPresentRealtimeAlert() && (!isManagement || soundEnabledRef.current);
+
+  useEffect(() => {
+    if (!isManagement) return;
+
+    const handleSoundPreference = (event: Event) => {
+      const detail = (event as CustomEvent<{ enabled?: boolean }>).detail;
+      soundEnabledRef.current = detail?.enabled !== false;
+      if (!soundEnabledRef.current && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+
+    window.addEventListener(MANAGEMENT_SOUND_EVENT, handleSoundPreference);
+    return () => window.removeEventListener(MANAGEMENT_SOUND_EVENT, handleSoundPreference);
+  }, [isManagement]);
 
   // Ref para capturar o conteúdo do relatório
   const reportRef = useRef<HTMLDivElement>(null);
@@ -341,6 +375,7 @@ export default function Home() {
 
   // Estado para intervalo de atualização automática
   const [refreshInterval, setRefreshInterval] = useState<number | null>(() => {
+    if (isManagement) return MANAGEMENT_REFRESH_INTERVAL;
     const saved = localStorage.getItem('dashboard-refresh-interval');
     return saved ? parseInt(saved, 10) : null;
   });
@@ -368,6 +403,22 @@ export default function Home() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [refreshScheduleVersion, setRefreshScheduleVersion] = useState(0);
+  const refreshInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   // Estado para exibir contagem e dados de chamados abertos (Atendendo + Pausado)
   const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
@@ -394,7 +445,7 @@ export default function Home() {
   });
 
   // Flag para saber se já salvou o ranking de referência do dia
-  const startOfDayRankingSavedRef = useRef<boolean>(() => {
+  const startOfDayRankingSavedRef = useRef<boolean>((() => {
     const today = format(new Date(), 'yyyy-MM-dd');
     const savedData = localStorage.getItem('dashboard-start-of-day-ranking');
     if (savedData) {
@@ -404,7 +455,7 @@ export default function Home() {
       } catch { }
     }
     return false;
-  });
+  })());
   const rankingInitializedRef = useRef<boolean>(false);
 
   // Função para buscar chamados abertos
@@ -520,11 +571,11 @@ export default function Home() {
       previousPesquisaTicketsRef.current = currentPesquisaKeys;
 
       // Disparar notificações para novas pesquisas
-      if (novasPesquisas.length > 0) {
+      if (novasPesquisas.length > 0 && canPresentRealtimeAlert()) {
         console.log('⭐ Total de novas pesquisas detectadas:', novasPesquisas.length);
 
         // Som de pesquisa (melodia harmônica positiva)
-        try {
+        if (canPlayRealtimeAudio()) try {
           const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
           const playTone = (startTime: number, frequency: number, duration: number) => {
             const osc = audioContext.createOscillator();
@@ -549,6 +600,7 @@ export default function Home() {
         // Cards visuais (máximo 3)
         novasPesquisas.slice(0, 3).forEach((pesquisa, index) => {
           setTimeout(() => {
+            if (!canPresentRealtimeAlert()) return;
             notificationStore.add('pesquisa_satisfacao', {
               ticket: pesquisa.ticket,
               razao_social: pesquisa.razao_social,
@@ -982,6 +1034,8 @@ export default function Home() {
 
   // Função para tocar som de alerta (novo chamado)
   const playNewTicketSound = () => {
+    if (!canPlayRealtimeAudio()) return;
+
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const playBeep = (startTime: number, frequency: number, duration: number) => {
@@ -1010,6 +1064,8 @@ export default function Home() {
 
   // Função para falar anúncios (aguarda vozes carregarem)
   const speakAnnouncement = (text: string) => {
+    if (!canPlayRealtimeAudio()) return;
+
     console.log('🔊 speakAnnouncement chamado com:', text);
 
     if (!('speechSynthesis' in window)) {
@@ -1018,6 +1074,8 @@ export default function Home() {
     }
 
     const speak = () => {
+      if (!canPlayRealtimeAudio()) return;
+
       try {
         console.log('🔊 Executando speak()...');
         window.speechSynthesis.cancel();
@@ -1106,6 +1164,17 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
   // Listener para erros da API do Milvus (500, 502, 503, 504)
   useEffect(() => {
     const handleMilvusApiError = (event: CustomEvent) => {
@@ -1118,12 +1187,14 @@ export default function Home() {
       console.log('⚠️ Flag de erro de API ativada - próximas respostas vazias serão ignoradas');
 
       // Mostrar card de alerta grande (sem áudio, apenas visual)
-      notificationStore.add('erro_milvus', {
-        status,
-        message,
-        endpoint,
-        timestamp,
-      }, 12000);
+      if (canPresentRealtimeAlert()) {
+        notificationStore.add('erro_milvus', {
+          status,
+          message,
+          endpoint,
+          timestamp,
+        }, 12000);
+      }
     };
 
     // Adicionar listener
@@ -1142,15 +1213,40 @@ export default function Home() {
       return;
     }
 
-    // Reset countdown
-    setNextRefreshIn(refreshInterval);
+    const intervalMs = refreshInterval;
+    let disposed = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    const intervalId = setInterval(async () => {
+    function scheduleNext() {
+      if (disposed) return;
+      setNextRefreshIn(intervalMs);
+      timeoutId = setTimeout(() => void runRefresh(), intervalMs);
+    }
+
+    async function runRefresh() {
+      if (disposed) return;
+
+      if (document.visibilityState !== "visible" || !navigator.onLine) {
+        scheduleNext();
+        return;
+      }
+
+      if (refreshInFlightRef.current) {
+        scheduleNext();
+        return;
+      }
+
+      refreshInFlightRef.current = true;
       setIsRefreshing(true);
       console.log('Auto-refresh: atualizando dados...');
 
+      let refreshSucceeded = false;
+
+      try {
+
       // 1. Buscar dados de atendimento (existente)
       const result = await refetch();
+      if (result.error) throw result.error;
       const newTickets = result.data?.lista || [];
       const newTicketCount = newTickets.length;
 
@@ -1245,6 +1341,7 @@ export default function Home() {
         // Mostrar cards de alerta grandes para cada novo chamado
         novosChamados.slice(0, 3).forEach((ticket, index) => {
           setTimeout(() => {
+            if (!canPresentRealtimeAlert()) return;
             notificationStore.add('novo_chamado', {
               codigo: ticket.codigo,
               assunto: ticket.assunto,
@@ -1285,6 +1382,8 @@ export default function Home() {
 
             // Timer de 4 minutos — AVISO (prestes a estourar)
             const avisoTimer = setTimeout(() => {
+              if (!canPresentRealtimeAlert()) return;
+
               // Verificar se o chamado ainda não foi atribuído
               const currentTimers = slaTimersRef.current.get(codigo);
               if (!currentTimers) return; // já foi cancelado (operador pegou)
@@ -1292,7 +1391,7 @@ export default function Home() {
               console.log('⚠️ SLA AVISO (4 min) — Chamado', codigo);
 
               // Som de alerta urgente
-              try {
+              if (canPlayRealtimeAudio()) try {
                 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const playTone = (startTime: number, frequency: number, duration: number) => {
                   const osc = audioContext.createOscillator();
@@ -1328,13 +1427,15 @@ export default function Home() {
 
             // Timer de 5 minutos — SLA ESTOURADO
             const estouradoTimer = setTimeout(() => {
+              if (!canPresentRealtimeAlert()) return;
+
               const currentTimers = slaTimersRef.current.get(codigo);
               if (!currentTimers) return;
 
               console.log('🚨 SLA ESTOURADO (5 min) — Chamado', codigo);
 
               // Som de alerta crítico
-              try {
+              if (canPlayRealtimeAudio()) try {
                 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const playTone = (startTime: number, frequency: number, duration: number) => {
                   const osc = audioContext.createOscillator();
@@ -1454,6 +1555,8 @@ export default function Home() {
       if (chamadosAtribuidos.length > 0) {
         // Som de atribuição (melodia ascendente suave - diferente de novo chamado e finalizado)
         const playAssignSound = () => {
+          if (!canPlayRealtimeAudio()) return;
+
           try {
             const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             const playTone = (startTime: number, frequency: number, duration: number) => {
@@ -1487,6 +1590,7 @@ export default function Home() {
         const delayBase = novosChamados.length > 0 ? 4000 : 0;
         chamadosAtribuidos.slice(0, 3).forEach((ticket, index) => {
           setTimeout(() => {
+            if (!canPresentRealtimeAlert()) return;
             notificationStore.add('chamado_atribuido', {
               codigo: ticket.codigo,
               assunto: ticket.assunto,
@@ -1559,6 +1663,8 @@ export default function Home() {
       if (newFinalizados.length > 0) {
         // Função para tocar som de sucesso
         const playSuccessSound = () => {
+          if (!canPlayRealtimeAudio()) return;
+
           try {
             const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             const playTone = (startTime: number, frequency: number, duration: number) => {
@@ -1590,6 +1696,7 @@ export default function Home() {
         // Mostrar cards de alerta grandes para cada ticket finalizado
         newFinalizados.slice(0, 3).forEach((ticket, index) => {
           setTimeout(() => {
+            if (!canPresentRealtimeAlert()) return;
             notificationStore.add('finalizado', {
               codigo: ticket.codigo,
               assunto: ticket.assunto,
@@ -1617,19 +1724,56 @@ export default function Home() {
         });
       }
 
-      setPreviousTicketCount(newTicketCount);
-      setTimeout(() => setIsRefreshing(false), 500);
-      setNextRefreshIn(refreshInterval);
-    }, refreshInterval);
+        setPreviousTicketCount(newTicketCount);
+        refreshSucceeded = true;
+      } catch (refreshError) {
+        console.error("Falha ao atualizar o dashboard:", refreshError);
+        if (canPresentRealtimeAlert()) {
+          toast({
+            title: "Atualização interrompida",
+            description: "Não foi possível concluir esta rodada. Uma nova tentativa será feita automaticamente.",
+            variant: "destructive",
+          });
+        }
+      } finally {
+        refreshInFlightRef.current = false;
+        setIsRefreshing(false);
+        if (refreshSucceeded) setLastUpdatedAt(new Date());
+        scheduleNext();
+      }
+    }
 
-    return () => clearInterval(intervalId);
-  }, [refreshInterval, refetch, toast, previousTicketCount]);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible" || refreshInFlightRef.current) return;
+      if (timeoutId) clearTimeout(timeoutId);
+      scheduleNext();
+    };
+
+    scheduleNext();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      disposed = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [
+    refreshInterval,
+    refetch,
+    toast,
+    previousTicketCount,
+    isManagement,
+    refreshScheduleVersion,
+    filters.data_inicial,
+    filters.data_final,
+  ]);
 
   // Countdown timer
   useEffect(() => {
     if (!nextRefreshIn || nextRefreshIn <= 0) return;
 
     const countdownId = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       setNextRefreshIn((prev) => {
         if (!prev || prev <= 1000) return null;
         return prev - 1000;
@@ -1640,6 +1784,12 @@ export default function Home() {
   }, [nextRefreshIn]);
 
   const tickets = ticketsResponse?.lista ?? [];
+
+  useEffect(() => {
+    if (ticketsResponse && !isFetching) {
+      setLastUpdatedAt((current) => current ?? new Date());
+    }
+  }, [ticketsResponse, isFetching]);
 
   // Atualiza contagem inicial de tickets e inicializa mapa de status
   useEffect(() => {
@@ -2218,6 +2368,8 @@ export default function Home() {
   };
 
   const handleRefreshChange = (value: string) => {
+    if (isManagement) return;
+
     if (value === "off") {
       setRefreshInterval(null);
       localStorage.removeItem('dashboard-refresh-interval');
@@ -2229,11 +2381,29 @@ export default function Home() {
   };
 
   const handleManualRefresh = async () => {
+    if (refreshInFlightRef.current) return;
+
+    if (!navigator.onLine) {
+      toast({
+        title: "Sem conexão",
+        description: "A atualização será retomada quando a rede voltar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    refreshInFlightRef.current = true;
     setIsRefreshing(true);
+
+    try {
 
     // 1. Atualizar dados do relatório
     const result = await refetch();
+    if (result.error) throw result.error;
     const newTicketCount = result.data?.lista?.length || 0;
+
+    // Manter os mesmos dados auxiliares do ciclo automático em sincronia.
+    await fetchPesquisas();
 
     // 2. Atualizar chamados ativos (Atendendo + Pausado)
     const openTickets = await fetchOpenTickets();
@@ -2251,9 +2421,11 @@ export default function Home() {
       const newTickets = newTicketCount - previousTicketCount;
 
       // Toca som de notificação
-      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWi77eefTRAMUKfj8LZjHAY4ktfyzHksBSR3yPDdkEAKE1+06+unVRULRp/h8r5uIAUsgs/y2Ik2CBlouO3nn00RDFCn4/C2YxwGOJPY8sx5KwUkeMjw3Y9AChRfsunrp1QUC0af4PK+bSAFLITP8NqJNgcZartuu+3nklERDFCm5PCzYhwGOJTa88tzKgUjd8Xwzo5ACxReu+rqo1QVC0Wf3/K9bSAFLYTO8tqJNwcZarsuu+znklEQS0/j8LRkHAU4lNrzzHgrBSN2xO/NjkALFFuz/ejmUxQLRp/g8axrHwUthM7y2ogzBhlosuzm3JBMEQ1Qq+PztGMcBjeV2vTMeSoFI3TC8M6OQAsVX7Po6KZYFA1Gn+Dyt2wdBCx/z/HYhzcFGWe58d+hTBANUavj87JiFQc3ltr0y3kqBSJzwu/NjT8MFFmx5+igWBQLRZ/f8rltIAQrgc7x2IgzBhposezm3I9LERFT/+TztWQcBTiT2fTMdioGI3K/8M+OQAsWXrPn6KFYFQxFn9/yvG0gBSp7zvHZiDQLGGe58N2hTBENUKvi8rJjHAU3k9n0zHcqBiJywvDPjUAMF1607+ihWBYMRZ/f8rltIAUrfM/x2IcyCxhnufDdoUwQC1Gr4vCyZBwFN5PZ9Mt2KgUicrzwz40/DBhftevov1gWDEWe3vK5ayAGK3vO8diHMgsYZ7nw3aFMEAtQq+Lwsl8cBjeR2fTLdSoFInLB8c+NPwwZX7Xs6L9YFgxFnt3yuWsgBSp7zvHYhzILGGa58N2gSA8KUKrh8LJfHAU3kdf0y3UqBSJywPTPjT8NHF+z7umvVxkMQ53c8rheIAYqe83z2YgyDB1lqevfnkUTCU+q4u+yXhsENo/W88x0KQQicsBxT4w/Dyh2yO3mnlQZDkKd2vO5XB4FKnrL8tmHMQsZY6rp3p1EFApOqOLtsVwcBDaOz/PMdCkEI3K9cU+LPw8occft5p5UGQ5Ands0uVweBSp5yvLZhzELGWOn6d6dRBQJTqbh7bFcHAQ2js/zzHMpBCNxvvFOiz8PKHHI7eaeUxgOQ5zb9LhcHgQqeMry');
-      audio.volume = 0.5;
-      audio.play().catch(() => { });
+      if (canPlayRealtimeAudio()) {
+        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWi77eefTRAMUKfj8LZjHAY4ktfyzHksBSR3yPDdkEAKE1+06+unVRULRp/h8r5uIAUsgs/y2Ik2CBlouO3nn00RDFCn4/C2YxwGOJPY8sx5KwUkeMjw3Y9AChRfsunrp1QUC0af4PK+bSAFLITP8NqJNgcZartuu+3nklERDFCm5PCzYhwGOJTa88tzKgUjd8Xwzo5ACxReu+rqo1QVC0Wf3/K9bSAFLYTO8tqJNwcZarsuu+znklEQS0/j8LRkHAU4lNrzzHgrBSN2xO/NjkALFFuz/ejmUxQLRp/g8axrHwUthM7y2ogzBhlosuzm3JBMEQ1Qq+PztGMcBjeV2vTMeSoFI3TC8M6OQAsVX7Po6KZYFA1Gn+Dyt2wdBCx/z/HYhzcFGWe58d+hTBANUavj87JiFQc3ltr0y3kqBSJzwu/NjT8MFFmx5+igWBQLRZ/f8rltIAQrgc7x2IgzBhposezm3I9LERFT/+TztWQcBTiT2fTMdioGI3K/8M+OQAsWXrPn6KFYFQxFn9/yvG0gBSp7zvHZiDQLGGe58N2hTBENUKvi8rJjHAU3k9n0zHcqBiJywvDPjUAMF1607+ihWBYMRZ/f8rltIAUrfM/x2IcyCxhnufDdoUwQC1Gr4vCyZBwFN5PZ9Mt2KgUicrzwz40/DBhftevov1gWDEWe3vK5ayAGK3vO8diHMgsYZ7nw3aFMEAtQq+Lwsl8cBjeR2fTLdSoFInLB8c+NPwwZX7Xs6L9YFgxFnt3yuWsgBSp7zvHYhzILGGa58N2gSA8KUKrh8LJfHAU3kdf0y3UqBSJywPTPjT8NHF+z7umvVxkMQ53c8rheIAYqe83z2YgyDB1lqevfnkUTCU+q4u+yXhsENo/W88x0KQQicsBxT4w/Dyh2yO3mnlQZDkKd2vO5XB4FKnrL8tmHMQsZY6rp3p1EFApOqOLtsVwcBDaOz/PMdCkEI3K9cU+LPw8occft5p5UGQ5Ands0uVweBSp5yvLZhzELGWOn6d6dRBQJTqbh7bFcHAQ2js/zzHMpBCNxvvFOiz8PKHHI7eaeUxgOQ5zb9LhcHgQqeMry');
+        audio.volume = 0.5;
+        audio.play().catch(() => { });
+      }
 
       toast({
         title: `🔔 ${newTickets} novo(s) chamado(s)!`,
@@ -2268,12 +2440,24 @@ export default function Home() {
       });
     }
 
-    setPreviousTicketCount(newTicketCount);
-    setTimeout(() => setIsRefreshing(false), 500);
+      setPreviousTicketCount(newTicketCount);
+      setLastUpdatedAt(new Date());
+      setRefreshScheduleVersion((current) => current + 1);
 
-    // Reseta o countdown se houver refresh automático ativo
-    if (refreshInterval) {
-      setNextRefreshIn(refreshInterval);
+      // Reseta o countdown se houver refresh automático ativo
+      if (refreshInterval) {
+        setNextRefreshIn(refreshInterval);
+      }
+    } catch (refreshError) {
+      console.error("Falha na atualização manual:", refreshError);
+      toast({
+        title: "Falha na atualização",
+        description: "Não foi possível carregar todos os indicadores. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      refreshInFlightRef.current = false;
+      setIsRefreshing(false);
     }
   };
 
@@ -2306,6 +2490,45 @@ export default function Home() {
   };
 
   if (isLoading) {
+    if (isManagement) {
+      return (
+        <div
+          className="grid min-h-full min-w-0 content-start gap-2.5 pb-4 xl:h-full xl:min-h-0 xl:grid-rows-[13fr_12fr_39fr_36fr] xl:gap-1.5 xl:pb-0 [@media(max-height:719px)]:xl:min-h-[600px]"
+          role="status"
+          aria-label="Carregando sala de gestão"
+        >
+          <div className="grid min-w-0 gap-2.5 lg:grid-cols-[2fr_1fr] xl:grid-cols-[64fr_36fr] xl:gap-1.5">
+            <Skeleton className="min-h-24 rounded-2xl xl:min-h-0" />
+            <Skeleton className="min-h-24 rounded-2xl xl:min-h-0" />
+          </div>
+
+          <div className="grid min-w-0 gap-2.5 sm:grid-cols-2 lg:grid-cols-10 xl:grid-cols-[11fr_11fr_11fr_11fr_11fr_22.5fr_22.5fr] xl:gap-1.5">
+            {Array.from({ length: 7 }).map((_, index) => (
+              <Skeleton
+                key={index}
+                className={cn(
+                  "min-h-20 rounded-2xl xl:col-span-1 xl:min-h-0",
+                  index < 5 ? "lg:col-span-2" : "lg:col-span-5",
+                )}
+              />
+            ))}
+          </div>
+
+          <div className="grid min-w-0 gap-2.5 lg:grid-cols-[68fr_32fr] xl:gap-1.5">
+            <Skeleton className="min-h-64 rounded-2xl xl:min-h-0" />
+            <Skeleton className="min-h-64 rounded-2xl xl:min-h-0" />
+          </div>
+
+          <div className="grid min-w-0 gap-2.5 sm:grid-cols-2 xl:gap-1.5">
+            <Skeleton className="min-h-56 rounded-2xl xl:min-h-0" />
+            <Skeleton className="min-h-56 rounded-2xl xl:min-h-0" />
+          </div>
+
+          <span className="sr-only">Carregando indicadores em tempo real...</span>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6">
         <PageHeader
@@ -2321,7 +2544,81 @@ export default function Home() {
     );
   }
 
+  if (isError) {
+    if (isManagement) {
+      return (
+        <div className="flex h-full min-h-[520px] items-center justify-center px-4">
+          <Card className="w-full max-w-xl border-rose-500/20 bg-slate-950/75 shadow-2xl">
+            <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-rose-500/10 text-rose-300">
+                <AlertTriangle aria-hidden="true" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-slate-100">Sala temporariamente indisponível</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  {error instanceof Error ? error.message : "Verifique a conexão e tente novamente."}
+                </p>
+              </div>
+              <Button variant="outline" onClick={handleManualRefresh} disabled={isRefreshing || isFetching}>
+                <RefreshCw className={cn((isRefreshing || isFetching) && "animate-spin")} aria-hidden="true" />
+                Tentar novamente
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          titulo="Visão Geral"
+          subtitulo="Dashboard executivo com indicadores principais"
+        />
+        <Card className="border-destructive/25 bg-destructive/[0.04]">
+          <CardContent className="flex flex-col items-start gap-4 py-8 sm:flex-row sm:items-center">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold">Não foi possível atualizar a visão geral</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {error instanceof Error ? error.message : "Verifique a conexão e tente novamente."}
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={cn(isFetching && "animate-spin")} aria-hidden="true" />
+              Tentar novamente
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!aggregatedData || !slaData) {
+    if (isManagement) {
+      return (
+        <div className="flex h-full min-h-[520px] items-center justify-center px-4">
+          <Card className="w-full max-w-xl border-slate-700/70 bg-slate-950/75 shadow-2xl">
+            <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-sky-500/10 text-sky-300">
+                <Activity aria-hidden="true" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-slate-100">Nenhum dado no período monitorado</h2>
+                <p className="mt-1 text-sm text-slate-400">Volte ao dashboard para ajustar os filtros ou atualize a sala.</p>
+              </div>
+              <Button variant="outline" onClick={handleManualRefresh} disabled={isRefreshing}>
+                <RefreshCw className={cn(isRefreshing && "animate-spin")} aria-hidden="true" />
+                Atualizar agora
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6">
         <PageHeader
@@ -2426,21 +2723,46 @@ export default function Home() {
   const tempoMedioRespostaGlobal = tempoMedioAbertura.minutos;
   const topOperadores = rankingOperadores.slice(0, 5);
 
+  if (isManagement) {
+    return (
+      <ManagementDashboard
+        rankingPesquisas={rankingPesquisas}
+        openTicketsCount={openTicketsCount}
+        chamadosAtivos={chamadosAtivos}
+        tempoAbertura={formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
+        tempoSolucao={formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
+        atividade={atividadePorOperadorDiaSemana}
+        calendario={calendarioData}
+        kpis={kpiCards}
+        tempoResposta={tempoRespostaPorOperadorCSV}
+        tempoAtendimento={tempoAtendimentoPorOperadorCSV}
+        isRefreshing={isRefreshing}
+        nextRefreshSeconds={Math.ceil((nextRefreshIn ?? MANAGEMENT_REFRESH_INTERVAL) / 1000)}
+        lastUpdatedLabel={lastUpdatedAt ? format(lastUpdatedAt, "HH:mm:ss") : "aguardando"}
+        onRefresh={() => void handleManualRefresh()}
+        isOnline={isOnline}
+        getAvatarSrc={getAvatarSrc}
+        formatDuration={formatMinutosCompleto}
+      />
+    );
+  }
+
   return (
     <div ref={reportRef} className="space-y-6">
-      <div className="flex flex-col xl:flex-row xl:items-start gap-4">
-        <div className="flex flex-col gap-3 flex-shrink-0">
-          <div className="flex items-center gap-4">
+      <div className="grid min-w-0 grid-cols-1 gap-4 2xl:grid-cols-12 2xl:items-stretch">
+        <div className="flex min-w-0 flex-col gap-3 2xl:contents">
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between 2xl:col-span-12">
             <PageHeader
               titulo="Visão Geral"
               subtitulo="Dashboard executivo inspirado no painel compartilhado"
+              className="flex-1"
             />
             <Button
               variant="outline"
               size="sm"
               onClick={exportToPDF}
               disabled={isExporting}
-              className="h-9 gap-2"
+              className="h-9 w-full gap-2 sm:w-auto"
             >
               {isExporting ? (
                 <>
@@ -2458,9 +2780,9 @@ export default function Home() {
 
           {/* Widget Top 3 Pesquisas (abaixo do título) */}
           {rankingPesquisas.length > 0 && (
-            <div className="glass glow-amber rounded-2xl p-1 animate-fade-in">
-              <div className="flex items-center gap-6 py-4 px-6">
-                <div className="flex items-center gap-3 pr-6 border-r border-yellow-500/20">
+            <div className="glass glow-amber overflow-hidden rounded-2xl p-1 animate-fade-in 2xl:col-span-8 2xl:h-full">
+              <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center lg:gap-6">
+                <div className="flex items-center gap-3 border-b border-yellow-500/20 pb-4 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-6">
                   <div className="p-2 rounded-xl bg-yellow-500/20">
                     <Trophy className="h-6 w-6 text-yellow-400 icon-glow" />
                   </div>
@@ -2469,10 +2791,10 @@ export default function Home() {
                     <p className="text-xs text-slate-400">Pesquisa de Satisfação</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-8">
+                <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3 lg:flex lg:items-center lg:gap-4">
                   {rankingPesquisas.map((item, idx) => (
                     <div key={item.operador} className={cn(
-                      "flex items-center gap-4 p-3 rounded-xl transition-all",
+                      "flex min-w-0 items-center gap-3 rounded-xl p-2.5 transition-all",
                       idx === 0 && "bg-yellow-500/10 shimmer"
                     )}>
                       <div className="relative">
@@ -2529,8 +2851,11 @@ export default function Home() {
           )}
 
           {/* Card de Chamados Ativos - movido para cá */}
-          <div className="glass glow-emerald rounded-2xl px-6 py-4 min-w-[320px] animate-fade-in-delay-1">
-            <div className="flex items-center justify-between">
+          <div className={cn(
+            "glass glow-emerald min-w-0 rounded-2xl px-4 py-4 animate-fade-in-delay-1 sm:px-6 2xl:h-full",
+            rankingPesquisas.length > 0 ? "2xl:col-span-4" : "2xl:col-span-12"
+          )}>
+            <div className="flex h-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-semibold uppercase text-emerald-400 tracking-wider flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-500 pulse-ring" />
@@ -2554,8 +2879,8 @@ export default function Home() {
           </div>
 
           {/* Período + Metas */}
-          <div className="glass-subtle rounded-2xl px-4 py-3 animate-fade-in-delay-2">
-            <div className="flex flex-wrap items-center gap-4">
+          <div className="glass-subtle rounded-2xl px-4 py-3 animate-fade-in-delay-2 2xl:col-span-12">
+            <div className="grid gap-4 md:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)] md:items-end">
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">Período</span>
                 <DateRangePicker
@@ -2564,8 +2889,8 @@ export default function Home() {
                   placeholder="Selecione o período"
                 />
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col items-center px-4 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="flex flex-col items-center rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2">
                   <span className="text-[10px] font-semibold text-blue-400 tracking-wide">META 00:05:00</span>
                   <span className="text-xl font-mono font-bold text-blue-300">
                     {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
@@ -2584,16 +2909,16 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="flex gap-3 items-start">
+        <div className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2 2xl:contents">
           {/* Atividade por Dia da Semana - Por Operador */}
-          <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px] overflow-hidden">
+          <Card className="min-w-0 overflow-hidden border-slate-700/50 bg-slate-900/50 2xl:col-span-7 2xl:h-full">
             <CardContent className="py-3 px-4">
               <div className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
                 <Activity className="h-4 w-4 text-orange-500" />
                 Atividade por Dia da Semana
               </div>
-              <div className="overflow-hidden">
-                <table className="w-full text-xs table-fixed">
+              <div className="scrollbar-subtle overflow-x-auto">
+                <table className="min-w-[420px] table-fixed text-xs sm:min-w-0 sm:w-full">
                   <thead className="sticky top-0 bg-slate-900/90 backdrop-blur-sm">
                     <tr>
                       <th className="text-left text-muted-foreground font-medium px-1 py-1 min-w-[80px]">Técnico</th>
@@ -2645,8 +2970,8 @@ export default function Home() {
           </Card>
 
           {/* Coluna: Calendário + Atualização Automática */}
-          <div className="flex flex-col gap-2">
-            <Card className="bg-slate-900/50 border-slate-700/50 min-w-[280px]">
+          <div className="flex flex-col gap-2 2xl:col-span-5 2xl:h-full">
+            <Card className="min-w-0 border-slate-700/50 bg-slate-900/50">
               <CardContent className="py-3 px-4">
                 <div className="text-xs font-semibold uppercase text-muted-foreground mb-1 text-center">
                   Chamados por Dia
@@ -2701,7 +3026,7 @@ export default function Home() {
                 <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
                 Atualização automática
               </span>
-              <div className="flex items-center gap-2 justify-center">
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 <Select
                   value={refreshInterval ? String(refreshInterval) : "off"}
                   onValueChange={handleRefreshChange}
@@ -2772,6 +3097,15 @@ export default function Home() {
               index === 4 && "animate-fade-in-delay-3"
             )}
             onClick={() => card.link && setLocation(card.link)}
+            onKeyDown={(event) => {
+              if (card.link && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                setLocation(card.link);
+              }
+            }}
+            role={card.link ? "link" : undefined}
+            tabIndex={card.link ? 0 : undefined}
+            aria-label={card.link ? `${card.titulo}: ${card.valor}. Abrir detalhes` : undefined}
           >
             <CardContent className="p-5 space-y-3">
               <div className="flex items-center justify-between">
@@ -2863,6 +3197,16 @@ export default function Home() {
                                 updateFilters({ analista: op.nome });
                                 setLocation('/operacional');
                               }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  updateFilters({ analista: op.nome });
+                                  setLocation('/operacional');
+                                }
+                              }}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Ver detalhes operacionais de ${op.nome}`}
                             >
                               <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
                                 <div
@@ -2981,6 +3325,16 @@ export default function Home() {
                                 updateFilters({ analista: op.nome });
                                 setLocation('/operacional');
                               }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  updateFilters({ analista: op.nome });
+                                  setLocation('/operacional');
+                                }
+                              }}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Ver detalhes operacionais de ${op.nome}`}
                             >
                               <div className="h-2.5 bg-slate-700/50 rounded-full overflow-hidden">
                                 <div
@@ -3191,6 +3545,14 @@ export default function Home() {
                         updateFilters({ analista: op.nome });
                         setLocation(`/operacional?status=Atendendo,Pausado`);
                       }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          updateFilters({ analista: op.nome });
+                          setLocation(`/operacional?status=Atendendo,Pausado`);
+                        }
+                      }}
+                      tabIndex={0}
                     >
                       <TableCell className="font-semibold text-slate-200">{op.nome}</TableCell>
                       <TableCell>

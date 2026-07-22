@@ -33,10 +33,10 @@ export function KPICard({
   testId,
 }: KPICardProps) {
   const destaqueClasses = {
-    success: "border-l-4 border-l-success",
-    warning: "border-l-4 border-l-warning",
-    danger: "border-l-4 border-l-destructive",
-    neutral: "",
+    success: "before:bg-success",
+    warning: "before:bg-warning",
+    danger: "before:bg-destructive",
+    neutral: "before:bg-primary",
   };
 
   const tamanhoClasses = {
@@ -70,19 +70,33 @@ export function KPICard({
   return (
     <Card
       className={cn(
-        "transition-all duration-150 rounded-md",
+        "group relative overflow-hidden rounded-2xl transition-all duration-200 before:absolute before:inset-x-5 before:top-0 before:h-px before:opacity-80",
         destaqueClasses[destaque],
-        onClick && "cursor-pointer hover-elevate",
+        onClick && "cursor-pointer hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] focus-visible:ring-2 focus-visible:ring-ring",
         className
       )}
       onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
       data-testid={testId}
     >
       <CardContent className={cn("space-y-2", tamanhoClasses[tamanho])}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {icone && (
-              <div className="text-muted-foreground">{icone}</div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/[0.08] text-primary transition-colors group-hover:bg-primary/15">
+                {icone}
+              </div>
             )}
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {titulo}
@@ -91,7 +105,12 @@ export function KPICard({
           {tooltip && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={`Mais informações sobre ${titulo}`}
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <HelpCircle className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
@@ -103,7 +122,7 @@ export function KPICard({
         </div>
 
         <div className="flex items-baseline gap-2">
-          <span className={valorClasses[tamanho]}>
+          <span className={cn(valorClasses[tamanho], "tabular-nums text-foreground")}>
             {typeof valor === "number" ? valor.toLocaleString("pt-BR") : valor}
           </span>
           {unidade && (

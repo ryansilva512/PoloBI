@@ -97,13 +97,13 @@ export function FilterBar({
     filtros.agente;
 
   return (
-    <div className={cn("space-y-3", className)}>
-      <div className="flex flex-wrap items-center gap-3">
+    <div className={cn("space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm sm:p-4", className)}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <Select
           value={filtros.periodo}
           onValueChange={(v) => updateFiltro("periodo", v)}
         >
-          <SelectTrigger className="w-[180px]" data-testid="select-periodo">
+          <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-periodo">
             <CalendarIcon className="mr-2 h-4 w-4" />
             <SelectValue placeholder="Período" />
           </SelectTrigger>
@@ -117,13 +117,13 @@ export function FilterBar({
         </Select>
 
         {filtros.periodo === "personalizado" && (
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex">
             <Popover>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
                   className={cn(
-                    "w-[140px] justify-start text-left font-normal",
+                    "w-full justify-start text-left font-normal sm:w-[140px]",
                     !filtros.dataInicio && "text-muted-foreground"
                   )}
                   data-testid="button-data-inicio"
@@ -150,7 +150,7 @@ export function FilterBar({
                 <Button
                   variant="outline"
                   className={cn(
-                    "w-[140px] justify-start text-left font-normal",
+                    "w-full justify-start text-left font-normal sm:w-[140px]",
                     !filtros.dataFim && "text-muted-foreground"
                   )}
                   data-testid="button-data-fim"
@@ -178,6 +178,8 @@ export function FilterBar({
           variant={showFilters ? "secondary" : "outline"}
           size="default"
           onClick={() => setShowFilters(!showFilters)}
+          aria-expanded={showFilters}
+          aria-controls="filtros-avancados"
           data-testid="button-filtros"
         >
           <Filter className="mr-2 h-4 w-4" />
@@ -201,10 +203,10 @@ export function FilterBar({
           </Button>
         )}
 
-        <div className="flex-1" />
+        <div className="hidden flex-1 sm:block" />
 
         {onExportar && (
-          <Button variant="outline" onClick={onExportar} data-testid="button-exportar">
+          <Button className="w-full sm:w-auto" variant="outline" onClick={onExportar} data-testid="button-exportar">
             <Download className="mr-2 h-4 w-4" />
             Exportar
           </Button>
@@ -212,14 +214,14 @@ export function FilterBar({
       </div>
 
       {showFilters && (
-        <div className="flex flex-wrap items-center gap-3 rounded-md bg-muted/50 p-3">
+        <div id="filtros-avancados" className="grid gap-3 rounded-xl border border-border/60 bg-muted/35 p-3 sm:grid-cols-2 xl:grid-cols-4">
           <Select
             value={filtros.canal || "todos"}
             onValueChange={(v) =>
               updateFiltro("canal", v === "todos" ? undefined : v)
             }
           >
-            <SelectTrigger className="w-[160px]" data-testid="select-canal">
+            <SelectTrigger className="w-full" data-testid="select-canal">
               <SelectValue placeholder="Canal" />
             </SelectTrigger>
             <SelectContent>
@@ -237,7 +239,7 @@ export function FilterBar({
               updateFiltro("prioridade", v === "todas" ? undefined : v)
             }
           >
-            <SelectTrigger className="w-[160px]" data-testid="select-prioridade">
+            <SelectTrigger className="w-full" data-testid="select-prioridade">
               <SelectValue placeholder="Prioridade" />
             </SelectTrigger>
             <SelectContent>
@@ -256,7 +258,7 @@ export function FilterBar({
                 updateFiltro("departamento", v === "todos" ? undefined : v)
               }
             >
-              <SelectTrigger className="w-[180px]" data-testid="select-departamento">
+              <SelectTrigger className="w-full" data-testid="select-departamento">
                 <SelectValue placeholder="Departamento" />
               </SelectTrigger>
               <SelectContent>
@@ -277,7 +279,7 @@ export function FilterBar({
                 updateFiltro("agente", v === "todos" ? undefined : v)
               }
             >
-              <SelectTrigger className="w-[180px]" data-testid="select-agente">
+              <SelectTrigger className="w-full" data-testid="select-agente">
                 <SelectValue placeholder="Agente" />
               </SelectTrigger>
               <SelectContent>

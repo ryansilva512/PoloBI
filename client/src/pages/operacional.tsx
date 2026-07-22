@@ -31,9 +31,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertTriangle, Clock4, ChevronDown, Check } from "lucide-react";
+import { AlertTriangle, Clock4, ChevronDown, Check, RefreshCw, Search } from "lucide-react";
 import type { TicketRaw } from "@shared/schema";
 import { newTicketsStore } from "@/stores/newTicketsStore";
+import { cn } from "@/lib/utils";
 
 const DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
@@ -63,8 +64,9 @@ const parseDateSafely = (value?: string | null) => {
 
 export default function Operacional() {
   const { filters, updateFilters, updateFilter } = useFilters();
-  const { data: ticketsResponse, isLoading } = useTicketsData(filters, true);
+  const { data: ticketsResponse, isLoading, isError, error, refetch, isFetching } = useTicketsData(filters, true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [operatorSearchTerm, setOperatorSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
   const [protocoloTerm, setProtocoloTerm] = useState("");
@@ -239,11 +241,11 @@ export default function Operacional() {
 
   const filteredOperadores = useMemo(() => {
     if (!aggregatedData?.operadorMetrics) return [];
-    if (!searchTerm) return aggregatedData.operadorMetrics;
+    if (!operatorSearchTerm) return aggregatedData.operadorMetrics;
     return aggregatedData.operadorMetrics.filter((op: any) =>
-      op.nome.toLowerCase().includes(searchTerm.toLowerCase())
+      op.nome.toLowerCase().includes(operatorSearchTerm.toLowerCase())
     );
-  }, [aggregatedData?.operadorMetrics, searchTerm]);
+  }, [aggregatedData?.operadorMetrics, operatorSearchTerm]);
 
   const operadoresDisponiveis = useMemo(() => {
     if (!ticketsFiltrados.length) return [];
@@ -557,12 +559,7 @@ export default function Operacional() {
     );
   }
 
-  // Só mostra "nenhum dado" se não houver dados do relatório E também não houver chamados ativos
-  if ((!aggregatedData || !slaData) && todosChamados.length === 0) {
-    return (
-      <PageHeader titulo="Operacional" subtitulo="Nenhum dado disponivel para o periodo selecionado" />
-    );
-  }
+  const hasNoData = (!aggregatedData || !slaData) && todosChamados.length === 0;
 
   return (
     <div className="space-y-6">
@@ -574,7 +571,7 @@ export default function Operacional() {
       {/* Filtros de data e operadores */}
       <Card className="glass-subtle border-0 rounded-2xl">
         <CardContent className="flex flex-col gap-5 py-5 px-6">
-          {ticketsResponse?.mock && (
+          {ticketsResponse && "mock" in ticketsResponse && Boolean(ticketsResponse.mock) && (
             <div className="rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 px-4 py-3 text-sm flex items-center gap-3">
               <AlertTriangle className="h-5 w-5" />
               Aviso: exibindo dados mock porque a API real não respondeu.
@@ -644,6 +641,36 @@ export default function Operacional() {
         </CardContent>
       </Card>
 
+      {isError && (
+        <Card className="border-amber-500/30 bg-amber-500/[0.06]">
+          <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">Parte dos dados não pôde ser atualizada</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {error instanceof Error ? error.message : "Verifique a conexão e tente novamente."}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={cn(isFetching && "animate-spin")} aria-hidden="true" />
+              Tentar novamente
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {hasNoData && !isError && (
+        <Card className="border-dashed bg-card/60">
+          <CardContent className="flex flex-col items-center py-10 text-center">
+            <Search className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <h2 className="mt-4 font-semibold">Nenhum chamado neste período</h2>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              Ajuste as datas ou selecione outro analista nos filtros acima para ampliar a busca.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
 
       {/* Novos Chamados Abertos (Dashboard de Alertas) */}
       {highlightedIds.size > 0 && (
@@ -703,12 +730,14 @@ export default function Operacional() {
         <CardContent className="space-y-4 px-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
             <Input
+              aria-label="Buscar chamados por assunto, operador ou cliente"
               placeholder="Buscar por assunto, operador ou cliente..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="md:max-w-sm bg-white/5 border-white/10 focus:border-blue-500/50"
             />
             <Input
+              aria-label="Pesquisar chamado por protocolo"
               placeholder="Pesquisar por protocolo (codigo)..."
               value={protocoloTerm}
               onChange={(e) => setProtocoloTerm(e.target.value)}
@@ -717,7 +746,7 @@ export default function Operacional() {
             {/* Dropdown Multi-Select de Status */}
             <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="min-w-[180px] justify-between bg-white/5 border-white/10 hover:bg-white/10">
+                <Button variant="outline" size="sm" className="w-full justify-between border-white/10 bg-white/5 hover:bg-white/10 md:w-auto md:min-w-[180px]">
                   <span className="truncate">
                     {selectedStatuses.length === 0
                       ? "Todos os status"
@@ -735,8 +764,7 @@ export default function Operacional() {
                     {statusDisponiveis.map((status) => (
                       <div
                         key={status}
-                        className="flex items-center space-x-2 cursor-pointer hover:bg-white/10 rounded px-2 py-1.5 transition-colors"
-                        onClick={() => toggleStatus(status)}
+                        className="flex items-center space-x-2 rounded px-2 py-1.5 transition-colors hover:bg-white/10"
                       >
                         <Checkbox
                           id={`status-${status}`}
@@ -769,7 +797,7 @@ export default function Operacional() {
                       className="flex-1 bg-gradient-to-r from-blue-500 to-sky-500"
                       onClick={applyStatusFilter}
                     >
-                      OK
+                      Concluir
                     </Button>
                   </div>
                 </div>
@@ -777,7 +805,7 @@ export default function Operacional() {
             </Popover>
 
             {/* Seletor de itens por página */}
-            <div className="ml-auto flex items-center gap-3">
+            <div className="flex w-full items-center gap-3 md:ml-auto md:w-auto">
               <span className="text-sm text-slate-400">Exibir:</span>
               <Select
                 value={String(itemsPerPage)}
@@ -808,16 +836,18 @@ export default function Operacional() {
 
           {/* Paginação */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t pt-4">
-              <span className="text-sm text-muted-foreground">
+            <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs text-muted-foreground sm:text-sm">
                 {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredTickets.length)} de {filteredTickets.length} itens
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center justify-between gap-1 sm:justify-end">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage === 1}
+                  aria-label="Ir para a primeira página"
+                  className="hidden sm:inline-flex"
                 >
                   «
                 </Button>
@@ -826,6 +856,7 @@ export default function Operacional() {
                   size="sm"
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
+                  aria-label="Página anterior"
                 >
                   ‹
                 </Button>
@@ -849,21 +880,28 @@ export default function Operacional() {
                       variant={currentPage === pageNum ? "default" : "outline"}
                       size="sm"
                       onClick={() => setCurrentPage(pageNum)}
-                      className="min-w-[36px]"
+                      className="hidden min-w-[36px] sm:inline-flex"
+                      aria-label={`Ir para a página ${pageNum}`}
+                      aria-current={currentPage === pageNum ? "page" : undefined}
                     >
                       {pageNum}
                     </Button>
                   );
                 })}
 
+                <span className="px-2 text-xs text-muted-foreground sm:hidden">
+                  Página {currentPage} de {totalPages}
+                </span>
+
                 {totalPages > 7 && currentPage < totalPages - 3 && (
                   <>
-                    <span className="px-2 text-muted-foreground">...</span>
+                    <span className="hidden px-2 text-muted-foreground sm:inline">...</span>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setCurrentPage(totalPages)}
-                      className="min-w-[36px]"
+                      className="hidden min-w-[36px] sm:inline-flex"
+                      aria-label={`Ir para a página ${totalPages}`}
                     >
                       {totalPages}
                     </Button>
@@ -875,6 +913,7 @@ export default function Operacional() {
                   size="sm"
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
+                  aria-label="Próxima página"
                 >
                   ›
                 </Button>
@@ -883,6 +922,8 @@ export default function Operacional() {
                   size="sm"
                   onClick={() => setCurrentPage(totalPages)}
                   disabled={currentPage === totalPages}
+                  aria-label="Ir para a última página"
+                  className="hidden sm:inline-flex"
                 >
                   »
                 </Button>
@@ -899,9 +940,10 @@ export default function Operacional() {
         </CardHeader>
         <CardContent className="space-y-4">
           <Input
+            aria-label="Filtrar operadores por nome"
             placeholder="Filtrar por nome do operador..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            value={operatorSearchTerm}
+            onChange={(e) => setOperatorSearchTerm(e.target.value)}
             className="max-w-sm"
           />
           <DataTable

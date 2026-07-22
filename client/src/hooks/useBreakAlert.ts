@@ -7,6 +7,12 @@ const BREAK_TIMES = [
 ];
 
 const BREAK_DURATION_MS = 120_000; // 2 minutos de pausa
+const MANAGEMENT_SOUND_KEY = 'polo-bi-management-sound-enabled';
+const MANAGEMENT_SOUND_EVENT = 'polo-bi:management-sound-change';
+
+const canPlayBreakAudio = () =>
+    window.location.pathname !== '/gestao' ||
+    localStorage.getItem(MANAGEMENT_SOUND_KEY) !== 'false';
 
 // Lista de músicas disponíveis (mp3 primeiro, mpeg como fallback)
 // IMPORTANTE: nomes de arquivo devem ser URL-safe (sem espaços, apóstrofos, etc.)
@@ -57,7 +63,7 @@ const markSongPlayed = (name: string) => {
     try {
         const played = getPlayedToday();
         played.add(name);
-        localStorage.setItem(getTodayKey(), JSON.stringify([...played]));
+        localStorage.setItem(getTodayKey(), JSON.stringify(Array.from(played)));
     } catch { /* ignore */ }
 };
 
@@ -76,6 +82,8 @@ export function useBreakAlert() {
     const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastTriggeredRef = useRef<string>('');
     const musicStartedRef = useRef(false);
+    const resumeAudioOnVisibleRef = useRef(false);
+    const resumeSpeechOnVisibleRef = useRef(false);
 
     // Persistir preferência
     useEffect(() => {
@@ -133,6 +141,11 @@ export function useBreakAlert() {
 
     // Falar texto (com callback opcional ao terminar)
     const speak = useCallback((text: string, onEnd?: () => void) => {
+        if (document.visibilityState !== 'visible' || !canPlayBreakAudio()) {
+            onEnd?.();
+            return;
+        }
+
         if (!('speechSynthesis' in window)) {
             console.warn('⚠️ SpeechSynthesis não suportado');
             onEnd?.();
@@ -148,6 +161,11 @@ export function useBreakAlert() {
         };
 
         const doSpeak = () => {
+            if (!canPlayBreakAudio()) {
+                fireCallback();
+                return;
+            }
+
             try {
                 window.speechSynthesis.cancel();
                 const utterance = new SpeechSynthesisUtterance(text);
@@ -181,6 +199,8 @@ export function useBreakAlert() {
 
                 // SAFETY: Se o onend não disparar em 5 segundos, forçar callback
                 setTimeout(() => {
+                    if (document.visibilityState !== 'visible') return;
+
                     if (!callbackFired) {
                         console.warn('⚠️ Safety timeout: onend não disparou, forçando callback');
                         fireCallback();
@@ -215,6 +235,8 @@ export function useBreakAlert() {
 
     // Iniciar música (escolhe aleatoriamente, sem repetir no mesmo dia)
     const startMusic = useCallback(() => {
+        if (!canPlayBreakAudio()) return;
+
         console.log('🎵 startMusic chamado');
         try {
             const songs = audioElementsRef.current;
@@ -253,6 +275,11 @@ export function useBreakAlert() {
             audio.currentTime = 0;
             audio.volume = 0.5;
 
+            if (document.visibilityState !== 'visible') {
+                resumeAudioOnVisibleRef.current = true;
+                return;
+            }
+
             const playPromise = audio.play();
             if (playPromise) {
                 playPromise.then(() => {
@@ -268,6 +295,8 @@ export function useBreakAlert() {
 
     // Parar música
     const stopMusic = useCallback(() => {
+        resumeAudioOnVisibleRef.current = false;
+
         if (activeAudioRef.current) {
             const audio = activeAudioRef.current;
             // Fade out suave
@@ -323,6 +352,8 @@ export function useBreakAlert() {
 
     // Disparar o break
     const triggerBreak = useCallback(() => {
+        if (document.visibilityState !== 'visible') return;
+
         console.log('🚶 Break Alert: Hora de se levantar!');
         setPhase('break');
         setSecondsLeft(120);
@@ -357,11 +388,68 @@ export function useBreakAlert() {
         setEnabled(prev => !prev);
     }, []);
 
+    // Suspende som e voz quando outra aba estiver em primeiro plano. Ao voltar,
+    // retoma apenas a reprodução que estava ativa antes da suspensão.
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') {
+                const activeAudio = activeAudioRef.current;
+                if (activeAudio && !activeAudio.paused) {
+                    resumeAudioOnVisibleRef.current = true;
+                    activeAudio.pause();
+                }
+
+                if ('speechSynthesis' in window && window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+                    resumeSpeechOnVisibleRef.current = true;
+                    window.speechSynthesis.pause();
+                }
+
+                return;
+            }
+
+            const activeAudio = activeAudioRef.current;
+            if (resumeAudioOnVisibleRef.current && activeAudio && canPlayBreakAudio()) {
+                resumeAudioOnVisibleRef.current = false;
+                activeAudio.play().catch((error) => {
+                    console.warn('🎵 Não foi possível retomar a música da pausa:', error);
+                });
+            } else {
+                resumeAudioOnVisibleRef.current = false;
+            }
+
+            if (resumeSpeechOnVisibleRef.current && 'speechSynthesis' in window && canPlayBreakAudio()) {
+                resumeSpeechOnVisibleRef.current = false;
+                window.speechSynthesis.resume();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, []);
+
     // Checker principal — verifica a cada 15 segundos se é hora de alertar
+    useEffect(() => {
+        if (window.location.pathname !== '/gestao') return;
+
+        const handleSoundPreference = (event: Event) => {
+            const soundEnabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled !== false;
+            if (soundEnabled) return;
+
+            resumeAudioOnVisibleRef.current = false;
+            activeAudioRef.current?.pause();
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        };
+
+        window.addEventListener(MANAGEMENT_SOUND_EVENT, handleSoundPreference);
+        return () => window.removeEventListener(MANAGEMENT_SOUND_EVENT, handleSoundPreference);
+    }, []);
+
     useEffect(() => {
         if (!enabled) return;
 
         const check = () => {
+            if (document.visibilityState !== 'visible') return;
+
             const now = new Date();
             const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
@@ -371,13 +459,35 @@ export function useBreakAlert() {
             }
         };
 
-        // Checar imediatamente
-        check();
+        let intervalId: ReturnType<typeof setInterval> | null = null;
 
-        // Checar a cada 15 segundos
-        const intervalId = setInterval(check, 15_000);
+        const startChecking = () => {
+            if (document.visibilityState !== 'visible' || intervalId) return;
+            check();
+            intervalId = setInterval(check, 15_000);
+        };
 
-        return () => clearInterval(intervalId);
+        const stopChecking = () => {
+            if (!intervalId) return;
+            clearInterval(intervalId);
+            intervalId = null;
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                startChecking();
+            } else {
+                stopChecking();
+            }
+        };
+
+        startChecking();
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            stopChecking();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, [enabled, phase, triggerBreak]);
 
     // Cleanup timers

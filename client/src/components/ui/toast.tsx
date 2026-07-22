@@ -7,14 +7,20 @@ import { cn } from "@/lib/utils"
 
 const ToastProvider = ToastPrimitives.Provider
 
+type ToastPlacement = "default" | "management"
+
 const ToastViewport = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Viewport>,
-  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Viewport>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Viewport> & {
+    placement?: ToastPlacement
+  }
+>(({ className, placement = "default", ...props }, ref) => (
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      placement === "management"
+        ? "fixed inset-x-0 top-16 z-[100] flex max-h-[calc(100svh-4rem)] w-full flex-col gap-2 p-3 sm:inset-x-auto sm:right-4 sm:top-[72px] sm:max-h-[calc(100svh-4.5rem)] sm:w-[360px] sm:max-w-[calc(100vw-2rem)] sm:p-0"
+        : "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
       className
     )}
     {...props}
@@ -41,12 +47,19 @@ const toastVariants = cva(
 const Toast = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Root>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Root> &
-    VariantProps<typeof toastVariants>
->(({ className, variant, ...props }, ref) => {
+    VariantProps<typeof toastVariants> & {
+      placement?: ToastPlacement
+    }
+>(({ className, variant, placement = "default", ...props }, ref) => {
   return (
     <ToastPrimitives.Root
       ref={ref}
-      className={cn(toastVariants({ variant }), className)}
+      className={cn(
+        toastVariants({ variant }),
+        placement === "management" &&
+          "rounded-xl p-4 pr-10 shadow-2xl backdrop-blur-xl data-[state=closed]:slide-out-to-top-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-top-full",
+        className
+      )}
       {...props}
     />
   )
@@ -117,6 +130,7 @@ type ToastActionElement = React.ReactElement<typeof ToastAction>
 export {
   type ToastProps,
   type ToastActionElement,
+  type ToastPlacement,
   ToastProvider,
   ToastViewport,
   Toast,

@@ -40,7 +40,7 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Wrench, Clock4, Users, BarChart3, Building2 } from "lucide-react";
+import { Wrench, Clock4, Users, BarChart3, Building2, AlertTriangle, RefreshCw } from "lucide-react";
 import type { TicketRaw } from "@shared/schema";
 
 const DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
@@ -76,7 +76,7 @@ const formatMinutosCompleto = (minutos: number | null) => {
 
 export default function ManutencaoPreventiva() {
     const { filters, updateFilters } = useFilters();
-    const { data: ticketsResponse, isLoading } = useTicketsData(filters, true);
+    const { data: ticketsResponse, isLoading, isError, error, refetch, isFetching } = useTicketsData(filters, true);
     const [, setLocation] = useLocation();
     const [analistaFiltro, setAnalistaFiltro] = useState<string | undefined>(undefined);
 
@@ -232,58 +232,75 @@ export default function ManutencaoPreventiva() {
         );
     }
 
+    if (isError) {
+        return (
+            <div className="space-y-6">
+                <PageHeader titulo="Manutenção Preventiva" subtitulo="Dashboard de chamados de manutenção preventiva" />
+                <Card className="border-destructive/25 bg-destructive/[0.04]">
+                    <CardContent className="flex flex-col items-start gap-4 py-8 sm:flex-row sm:items-center">
+                        <AlertTriangle className="h-6 w-6 shrink-0 text-destructive" aria-hidden="true" />
+                        <div className="min-w-0 flex-1">
+                            <h2 className="font-semibold">Não foi possível carregar as manutenções</h2>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                {error instanceof Error ? error.message : "Verifique a conexão e tente novamente."}
+                            </p>
+                        </div>
+                        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+                            <RefreshCw className={cn(isFetching && "animate-spin")} aria-hidden="true" />
+                            Tentar novamente
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
     const maxQtd = qtdPorAnalista[0]?.total || 1;
     const maxTempo = tempoPorAnalista[0]?.tempoMedio || 1;
 
     return (
         <div className="space-y-6">
-            {/* Header com estilo vermelho */}
-            <div className="bg-gradient-to-r from-red-600 to-red-700 rounded-lg p-6 text-white">
-                <div className="flex items-center gap-3">
-                    <Wrench className="h-8 w-8" />
-                    <div>
-                        <h1 className="text-2xl font-bold">Manutenção Preventiva</h1>
-                        <p className="text-red-100 text-sm">
-                            Dashboard de chamados de manutenção preventiva
-                        </p>
-                    </div>
-                </div>
-            </div>
+            <PageHeader
+                titulo="Manutenção Preventiva"
+                subtitulo="Acompanhe volume, tempo de atendimento e distribuição das rotinas preventivas"
+            />
 
             {/* Filtros */}
             <Card className="border-dashed">
-                <CardContent className="flex flex-wrap gap-4 py-4">
+                <CardContent className="grid gap-4 py-4 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,12rem))_auto]">
                     <div className="space-y-1">
-                        <label className="text-xs font-semibold uppercase text-muted-foreground">
+                        <label htmlFor="maintenance-start-date" className="text-xs font-semibold uppercase text-muted-foreground">
                             Data Inicial
                         </label>
                         <Input
+                            id="maintenance-start-date"
                             type="date"
                             value={dataInicialDate ? format(dataInicialDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("start", e.target.value)}
-                            className="w-40"
+                            className="w-full"
                         />
                     </div>
                     <div className="space-y-1">
-                        <label className="text-xs font-semibold uppercase text-muted-foreground">
+                        <label htmlFor="maintenance-end-date" className="text-xs font-semibold uppercase text-muted-foreground">
                             Data Final
                         </label>
                         <Input
+                            id="maintenance-end-date"
                             type="date"
                             value={dataFinalDate ? format(dataFinalDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("end", e.target.value)}
-                            className="w-40"
+                            className="w-full"
                         />
                     </div>
                     <div className="space-y-1">
-                        <label className="text-xs font-semibold uppercase text-muted-foreground">
+                        <label htmlFor="maintenance-analyst" className="text-xs font-semibold uppercase text-muted-foreground">
                             Analista
                         </label>
                         <Select
                             value={analistaFiltro || "todos"}
                             onValueChange={(v) => setAnalistaFiltro(v === "todos" ? undefined : v)}
                         >
-                            <SelectTrigger className="w-40">
+                            <SelectTrigger id="maintenance-analyst" className="w-full">
                                 <SelectValue placeholder="Todos" />
                             </SelectTrigger>
                             <SelectContent>
@@ -296,7 +313,7 @@ export default function ManutencaoPreventiva() {
                             </SelectContent>
                         </Select>
                     </div>
-                    <div className="flex items-end">
+                    <div className="flex items-end sm:col-span-2 xl:col-span-1">
                         <Button
                             variant="ghost"
                             size="sm"
@@ -358,7 +375,7 @@ export default function ManutencaoPreventiva() {
                         {qtdPorAnalista.length === 0 && (
                             <p className="text-sm text-muted-foreground">Sem dados para o período.</p>
                         )}
-                        {qtdPorAnalista.slice(0, 10).map((op) => {
+                        {qtdPorAnalista.map((op) => {
                             const value = (op.total / maxQtd) * 100;
                             return (
                                 <TooltipProvider key={op.nome} delayDuration={100}>
@@ -370,6 +387,16 @@ export default function ManutencaoPreventiva() {
                                                     updateFilters({ analista: op.nome });
                                                     setLocation("/operacional");
                                                 }}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter" || event.key === " ") {
+                                                        event.preventDefault();
+                                                        updateFilters({ analista: op.nome });
+                                                        setLocation("/operacional");
+                                                    }
+                                                }}
+                                                role="link"
+                                                tabIndex={0}
+                                                aria-label={`Ver detalhes operacionais de ${op.nome}`}
                                             >
                                                 <div className="flex items-center justify-between text-sm">
                                                     <span className="font-medium">{op.nome}</span>
@@ -409,7 +436,7 @@ export default function ManutencaoPreventiva() {
                         {tempoPorAnalista.length === 0 && (
                             <p className="text-sm text-muted-foreground">Sem dados para o período.</p>
                         )}
-                        {tempoPorAnalista.slice(0, 10).map((op) => {
+                        {tempoPorAnalista.map((op) => {
                             const value = (op.tempoMedio / maxTempo) * 100;
                             return (
                                 <TooltipProvider key={op.nome} delayDuration={100}>
@@ -421,6 +448,16 @@ export default function ManutencaoPreventiva() {
                                                     updateFilters({ analista: op.nome });
                                                     setLocation("/operacional");
                                                 }}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter" || event.key === " ") {
+                                                        event.preventDefault();
+                                                        updateFilters({ analista: op.nome });
+                                                        setLocation("/operacional");
+                                                    }
+                                                }}
+                                                role="link"
+                                                tabIndex={0}
+                                                aria-label={`Ver detalhes operacionais de ${op.nome}`}
                                             >
                                                 <div className="flex items-center justify-between text-sm">
                                                     <span className="font-medium">{op.nome}</span>
@@ -471,7 +508,7 @@ export default function ManutencaoPreventiva() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {clientesPorOperador.slice(0, 20).map((item, idx) => (
+                            {clientesPorOperador.map((item, idx) => (
                                 <TableRow key={`${item.cliente}-${item.operador}-${idx}`}>
                                     <TableCell className="font-medium">{item.cliente}</TableCell>
                                     <TableCell>

@@ -97,13 +97,22 @@ export function DataTable<T>({
   };
 
   return (
-    <div className={cn("rounded-md border", className)} data-testid={testId}>
+    <div className={cn("overflow-hidden rounded-xl border bg-card/55", className)} data-testid={testId}>
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/50">
             {columns.map((column) => (
               <TableHead
                 key={column.key}
+                aria-sort={
+                  sortKey === column.key
+                    ? sortDirection === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : column.sortable
+                    ? "none"
+                    : undefined
+                }
                 className={cn(
                   "text-xs font-medium uppercase tracking-wide",
                   column.headerClassName
@@ -115,6 +124,7 @@ export function DataTable<T>({
                     size="sm"
                     className="-ml-3 h-8 data-[state=open]:bg-accent"
                     onClick={() => handleSort(column.key)}
+                    aria-label={`Ordenar por ${column.header}`}
                   >
                     {column.header}
                     <SortIcon columnKey={column.key} />
@@ -145,6 +155,17 @@ export function DataTable<T>({
                   onRowClick && "cursor-pointer hover-elevate"
                 )}
                 onClick={() => onRowClick?.(row)}
+                onKeyDown={
+                  onRowClick
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                tabIndex={onRowClick ? 0 : undefined}
                 data-testid={`row-${keyExtractor(row)}`}
               >
                 {columns.map((column) => (

@@ -34,7 +34,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Clock, Timer, User, Building2, FileText, Download, Loader2, PartyPopper, TrendingUp, Flame } from "lucide-react";
+import { AlertTriangle, Clock, Timer, User, Building2, FileText, Download, Loader2, PartyPopper, TrendingUp, Flame, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import jsPDF from "jspdf";
 
@@ -83,6 +83,43 @@ const getExceededColor = (porcentagem: number): { bg: string; text: string; bar:
     return { bg: "bg-red-500/20", text: "text-red-600", bar: "bg-red-500" };
 };
 
+function PaginationFooter({
+    page,
+    pageSize,
+    total,
+    onPageChange,
+}: {
+    page: number;
+    pageSize: number;
+    total: number;
+    onPageChange: (page: number) => void;
+}) {
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const firstItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
+    const lastItem = Math.min(page * pageSize, total);
+
+    return (
+        <div className="flex flex-col gap-3 border-t border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <p className="text-xs text-slate-400">
+                Exibindo <span className="font-medium text-slate-200">{firstItem}–{lastItem}</span> de {total} registros
+            </p>
+            {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="border-white/10 bg-white/5" onClick={() => onPageChange(page - 1)} disabled={page <= 1} aria-label="Página anterior">
+                        <ChevronLeft aria-hidden="true" />
+                        <span className="hidden sm:inline">Anterior</span>
+                    </Button>
+                    <span className="min-w-16 text-center text-xs text-slate-400">{page} de {totalPages}</span>
+                    <Button variant="outline" size="sm" className="border-white/10 bg-white/5" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} aria-label="Próxima página">
+                        <span className="hidden sm:inline">Próxima</span>
+                        <ChevronRight aria-hidden="true" />
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function RegistrosExpirados() {
     const { filters, updateFilters } = useFilters();
     const [, setLocation] = useLocation();
@@ -90,6 +127,7 @@ export default function RegistrosExpirados() {
     const [activeTab, setActiveTab] = useState<"resposta" | "atendimento">("resposta");
     const [isExporting, setIsExporting] = useState(false);
     const [pageSize, setPageSize] = useState(10);
+    const [currentPage, setCurrentPage] = useState(1);
     const { toast } = useToast();
 
     // Interface para dados do relatório de tickets (com campos SLA)
@@ -111,24 +149,24 @@ export default function RegistrosExpirados() {
     // Estado para tickets detalhados (do CSV com campos SLA)
     const [ticketsDetalhados, setTicketsDetalhados] = useState<TicketDetalhado[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // Função para buscar relatório de tickets (endpoint que retorna CSV com campos SLA)
     const fetchRelatorioTickets = async () => {
         try {
             setIsLoading(true);
+            setLoadError(null);
             const response = await fetch('/api/proxy/relatorio-tickets', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
             });
-            if (!response.ok) {
-                console.error('Erro ao buscar relatório de tickets:', response.status);
-                return;
-            }
+            if (!response.ok) throw new Error(`Não foi possível carregar os registros (${response.status}).`);
             const data = await response.json();
             console.log('📊 Relatório de tickets carregado:', data?.lista?.length, 'registros');
             setTicketsDetalhados(data?.lista || []);
         } catch (e) {
             console.error('Erro ao buscar relatório de tickets:', e);
+            setLoadError(e instanceof Error ? e.message : 'Não foi possível carregar os registros expirados.');
         } finally {
             setIsLoading(false);
         }
@@ -269,6 +307,10 @@ export default function RegistrosExpirados() {
         });
         return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
     }, [ticketsDetalhados]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [activeTab, pageSize, analistaFiltro, filters.data_inicial, filters.data_final]);
 
     const handleDateChange = (type: "start" | "end", value: string) => {
         if (!value) {
@@ -453,11 +495,37 @@ export default function RegistrosExpirados() {
         );
     }
 
+    if (loadError) {
+        return (
+            <div className="space-y-6">
+                <PageHeader
+                    titulo="Registros Expirados"
+                    subtitulo="Chamados com tempo de resposta ou atendimento fora do SLA"
+                />
+                <Card className="border-destructive/25 bg-destructive/[0.04]">
+                    <CardContent className="flex flex-col items-start gap-4 py-8 sm:flex-row sm:items-center">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                            <AlertTriangle aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <h2 className="font-semibold">Não foi possível carregar os registros</h2>
+                            <p className="mt-1 text-sm text-muted-foreground">{loadError}</p>
+                        </div>
+                        <Button variant="outline" onClick={fetchRelatorioTickets}>
+                            <RefreshCw aria-hidden="true" />
+                            Tentar novamente
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
                     <PageHeader
                         titulo="Registros Expirados"
                         subtitulo="Chamados com tempo de resposta ou atendimento fora do SLA"
@@ -467,7 +535,7 @@ export default function RegistrosExpirados() {
                         size="sm"
                         onClick={exportToPDF}
                         disabled={isExporting}
-                        className="h-9 gap-2"
+                        className="h-9 w-full gap-2 sm:w-auto"
                     >
                         {isExporting ? (
                             <>
@@ -482,9 +550,9 @@ export default function RegistrosExpirados() {
                         )}
                     </Button>
                 </div>
-                <div className="flex gap-4">
+                <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:w-auto">
                     {/* KPI Resposta Expirada */}
-                    <Card className="glass glow-amber border-0 rounded-2xl overflow-hidden min-w-[200px] transition-all duration-300 hover-lift animate-fade-in">
+                    <Card className="glass glow-amber min-w-0 overflow-hidden rounded-2xl border-0 transition-all duration-300 hover-lift animate-fade-in">
                         <CardContent className="py-5 px-6">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 ring-2 ring-amber-500/30 pulse-ring">
@@ -499,7 +567,7 @@ export default function RegistrosExpirados() {
                         </CardContent>
                     </Card>
                     {/* KPI Atendimento Expirado */}
-                    <Card className="glass glow-red border-0 rounded-2xl overflow-hidden min-w-[200px] transition-all duration-300 hover-lift animate-fade-in-delay-1">
+                    <Card className="glass glow-red min-w-0 overflow-hidden rounded-2xl border-0 transition-all duration-300 hover-lift animate-fade-in-delay-1">
                         <CardContent className="py-5 px-6">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 rounded-xl bg-gradient-to-br from-red-500/20 to-rose-500/20 ring-2 ring-red-500/30 pulse-ring">
@@ -519,37 +587,39 @@ export default function RegistrosExpirados() {
             {/* Filtros */}
             <Card className="glass-subtle border-0 rounded-2xl">
                 <CardContent className="flex flex-wrap gap-4 py-5 px-6">
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+                    <div className="w-full space-y-1.5 sm:w-auto">
+                        <label htmlFor="expired-start-date" className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Data Inicial
                         </label>
                         <Input
+                            id="expired-start-date"
                             type="date"
                             value={dataInicialDate ? format(dataInicialDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("start", e.target.value)}
-                            className="w-40 bg-white/5 border-white/10 focus:border-blue-500/50"
+                            className="w-full bg-white/5 border-white/10 focus:border-blue-500/50 sm:w-40"
                         />
                     </div>
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+                    <div className="w-full space-y-1.5 sm:w-auto">
+                        <label htmlFor="expired-end-date" className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Data Final
                         </label>
                         <Input
+                            id="expired-end-date"
                             type="date"
                             value={dataFinalDate ? format(dataFinalDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("end", e.target.value)}
-                            className="w-40 bg-white/5 border-white/10 focus:border-blue-500/50"
+                            className="w-full bg-white/5 border-white/10 focus:border-blue-500/50 sm:w-40"
                         />
                     </div>
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+                    <div className="w-full space-y-1.5 sm:w-auto">
+                        <label htmlFor="expired-analyst" className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Analista
                         </label>
                         <Select
                             value={analistaFiltro || "todos"}
                             onValueChange={(v) => setAnalistaFiltro(v === "todos" ? undefined : v)}
                         >
-                            <SelectTrigger className="w-40 bg-white/5 border-white/10">
+                            <SelectTrigger id="expired-analyst" className="w-full bg-white/5 border-white/10 sm:w-40">
                                 <SelectValue placeholder="Todos" />
                             </SelectTrigger>
                             <SelectContent>
@@ -575,14 +645,14 @@ export default function RegistrosExpirados() {
                         </Button>
                     </div>
                     {/* Seletor de quantidade por página */}
-                    <div className="flex items-end ml-auto">
+                    <div className="flex w-full items-end sm:ml-auto sm:w-auto">
                         <div className="flex items-center gap-3">
                             <span className="text-sm text-slate-400">Exibir:</span>
                             <Select
                                 value={String(pageSize)}
                                 onValueChange={(v) => setPageSize(Number(v))}
                             >
-                                <SelectTrigger className="w-20 bg-white/5 border-white/10">
+                                <SelectTrigger aria-label="Quantidade de registros por página" className="w-20 bg-white/5 border-white/10">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -599,16 +669,16 @@ export default function RegistrosExpirados() {
 
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "resposta" | "atendimento")}>
-                <TabsList className="grid w-full max-w-md grid-cols-2 bg-white/5 p-1 rounded-xl">
-                    <TabsTrigger value="resposta" className="gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-500 data-[state=active]:text-white rounded-lg">
+                <TabsList className="grid w-full max-w-md grid-cols-2 rounded-xl bg-white/5 p-1">
+                    <TabsTrigger value="resposta" className="min-w-0 gap-1.5 rounded-lg text-[11px] data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-500 data-[state=active]:text-white sm:gap-2 sm:text-sm">
                         <Timer className="h-4 w-4" />
-                        Resposta Expirada
-                        <Badge variant="secondary" className="ml-1 bg-white/20">{respostasExpiradas.length}</Badge>
+                        <span>Resposta<span className="hidden sm:inline"> Expirada</span></span>
+                        <Badge variant="secondary" className="ml-1 hidden bg-white/20 sm:inline-flex">{respostasExpiradas.length}</Badge>
                     </TabsTrigger>
-                    <TabsTrigger value="atendimento" className="gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:to-rose-500 data-[state=active]:text-white rounded-lg">
+                    <TabsTrigger value="atendimento" className="min-w-0 gap-1.5 rounded-lg text-[11px] data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:to-rose-500 data-[state=active]:text-white sm:gap-2 sm:text-sm">
                         <Clock className="h-4 w-4" />
-                        Atendimento Expirado
-                        <Badge variant="secondary" className="ml-1 bg-white/20">{atendimentosExpirados.length}</Badge>
+                        <span>Atendimento<span className="hidden sm:inline"> Expirado</span></span>
+                        <Badge variant="secondary" className="ml-1 hidden bg-white/20 sm:inline-flex">{atendimentosExpirados.length}</Badge>
                     </TabsTrigger>
                 </TabsList>
 
@@ -659,7 +729,7 @@ export default function RegistrosExpirados() {
                                                 </TableCell>
                                             </TableRow>
                                         ) : (
-                                            respostasExpiradas.slice(0, pageSize).map((ticket, idx) => {
+                                            respostasExpiradas.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((ticket, idx) => {
                                                 const porcentagem = calcularPorcentagemExcedida(ticket.tempoResposta, META_RESPOSTA_MINUTOS);
                                                 const cores = getExceededColor(porcentagem);
                                                 const barWidth = Math.min(porcentagem, 500) / 5; // max 100%
@@ -675,6 +745,14 @@ export default function RegistrosExpirados() {
                                                             updateFilters({ analista: ticket.nome });
                                                             setLocation("/operacional");
                                                         }}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === "Enter" || event.key === " ") {
+                                                                event.preventDefault();
+                                                                updateFilters({ analista: ticket.nome });
+                                                                setLocation("/operacional");
+                                                            }
+                                                        }}
+                                                        tabIndex={0}
                                                     >
                                                         <TableCell className="font-mono font-bold text-amber-400">{ticket.codigo}</TableCell>
                                                         <TableCell>
@@ -711,6 +789,12 @@ export default function RegistrosExpirados() {
                                 </Table>
                             </div>
                         </CardContent>
+                        <PaginationFooter
+                            page={currentPage}
+                            pageSize={pageSize}
+                            total={respostasExpiradas.length}
+                            onPageChange={setCurrentPage}
+                        />
                     </Card>
                 </TabsContent>
 
@@ -761,7 +845,7 @@ export default function RegistrosExpirados() {
                                                 </TableCell>
                                             </TableRow>
                                         ) : (
-                                            atendimentosExpirados.slice(0, pageSize).map((ticket, idx) => {
+                                            atendimentosExpirados.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((ticket, idx) => {
                                                 const metaMinutos = META_ATENDIMENTO_HORAS * 60;
                                                 const porcentagem = calcularPorcentagemExcedida(ticket.tempoAtendimento, metaMinutos);
                                                 const cores = getExceededColor(porcentagem);
@@ -778,6 +862,14 @@ export default function RegistrosExpirados() {
                                                             updateFilters({ analista: ticket.nome });
                                                             setLocation("/operacional");
                                                         }}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === "Enter" || event.key === " ") {
+                                                                event.preventDefault();
+                                                                updateFilters({ analista: ticket.nome });
+                                                                setLocation("/operacional");
+                                                            }
+                                                        }}
+                                                        tabIndex={0}
                                                     >
                                                         <TableCell className="font-mono font-bold text-red-400">{ticket.codigo}</TableCell>
                                                         <TableCell>
@@ -814,6 +906,12 @@ export default function RegistrosExpirados() {
                                 </Table>
                             </div>
                         </CardContent>
+                        <PaginationFooter
+                            page={currentPage}
+                            pageSize={pageSize}
+                            total={atendimentosExpirados.length}
+                            onPageChange={setCurrentPage}
+                        />
                     </Card>
                 </TabsContent>
             </Tabs>

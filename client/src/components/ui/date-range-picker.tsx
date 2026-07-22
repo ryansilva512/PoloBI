@@ -111,26 +111,26 @@ export function DateRangePicker({
                 <Button
                     variant="outline"
                     className={cn(
-                        "justify-start text-left font-normal min-w-[260px]",
+                        "w-full min-w-0 justify-start overflow-hidden text-left font-normal sm:w-auto sm:min-w-[260px]",
                         !dateRange && "text-muted-foreground",
                         className
                     )}
                 >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {formatDateRange(dateRange)}
+                    <span className="truncate">{formatDateRange(dateRange)}</span>
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-                <div className="flex">
+            <PopoverContent className="w-[calc(100vw-1rem)] max-w-[480px] p-0 sm:w-auto" align="start">
+                <div className="flex flex-col sm:flex-row">
                     {/* Presets Sidebar */}
-                    <div className="border-r p-3 space-y-1 bg-muted/30 min-w-[140px]">
+                    <div className="grid grid-cols-2 gap-1 border-b bg-muted/30 p-2 sm:block sm:min-w-[140px] sm:space-y-1 sm:border-b-0 sm:border-r sm:p-3">
                         {presets.map((preset) => (
                             <Button
                                 key={preset.label}
                                 variant="ghost"
                                 size="sm"
                                 className={cn(
-                                    "w-full justify-start text-sm font-normal h-9",
+                                    "h-9 w-full justify-start px-2 text-xs font-normal sm:px-3 sm:text-sm",
                                     tempRange?.from &&
                                     preset.getValue().from.toDateString() === tempRange.from.toDateString() &&
                                     preset.getValue().to.toDateString() === (tempRange.to?.toDateString() ?? "") &&
@@ -144,7 +144,7 @@ export function DateRangePicker({
                     </div>
 
                     {/* Calendar */}
-                    <div className="p-3">
+                    <div className="min-w-0 overflow-x-auto p-2 sm:p-3">
                         {/* Period Display Header */}
                         <div className="mb-3 px-2 py-2 bg-slate-700 rounded-lg text-white">
                             <p className="text-xs text-slate-300">{tempRange?.from ? format(tempRange.from, "yyyy", { locale: ptBR }) : new Date().getFullYear()}</p>

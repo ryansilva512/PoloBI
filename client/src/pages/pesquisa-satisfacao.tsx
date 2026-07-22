@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, parseISO, isValid, startOfDay, endOfDay, startOfMonth } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { useFilters } from "@/context/FilterContext";
@@ -40,7 +40,10 @@ import {
     User,
     Building2,
     Calendar,
-    AlertTriangle
+    AlertTriangle,
+    ChevronLeft,
+    ChevronRight,
+    RefreshCw,
 } from "lucide-react";
 
 interface PesquisaItem {
@@ -122,9 +125,10 @@ function StarRating({ rating }: { rating: number }) {
 
 export default function PesquisaSatisfacao() {
     const { filters, updateFilters } = useFilters();
-    const { data: pesquisasResponse, isLoading } = usePesquisasData();
+    const { data: pesquisasResponse, isLoading, isError, error, refetch, isFetching } = usePesquisasData();
     const [analistaFiltro, setAnalistaFiltro] = useState<string | undefined>(undefined);
     const [pageSize, setPageSize] = useState(10);
+    const [currentPage, setCurrentPage] = useState(1);
 
     const pesquisas: PesquisaItem[] = pesquisasResponse?.lista ?? [];
 
@@ -228,6 +232,10 @@ export default function PesquisaSatisfacao() {
         return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
     }, [pesquisas]);
 
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [pageSize, analistaFiltro, filters.data_inicial, filters.data_final, pesquisasTabela.length]);
+
     const handleDateChange = (type: "start" | "end", value: string) => {
         if (!value) {
             updateFilters({
@@ -260,6 +268,29 @@ export default function PesquisaSatisfacao() {
         );
     }
 
+    if (isError) {
+        return (
+            <div className="space-y-6">
+                <PageHeader titulo="Pesquisa de Satisfação" subtitulo="Análise de avaliações e satisfação dos clientes" />
+                <Card className="border-destructive/25 bg-destructive/[0.04]">
+                    <CardContent className="flex flex-col items-start gap-4 py-8 sm:flex-row sm:items-center">
+                        <AlertTriangle className="h-6 w-6 shrink-0 text-destructive" aria-hidden="true" />
+                        <div className="min-w-0 flex-1">
+                            <h2 className="font-semibold">Não foi possível carregar as pesquisas</h2>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                {error instanceof Error ? error.message : "Verifique a conexão e tente novamente."}
+                            </p>
+                        </div>
+                        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+                            <RefreshCw className={cn(isFetching && "animate-spin")} aria-hidden="true" />
+                            Tentar novamente
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -270,38 +301,40 @@ export default function PesquisaSatisfacao() {
 
             {/* Filtros */}
             <Card className="glass-subtle border-0 rounded-2xl">
-                <CardContent className="flex flex-wrap items-end gap-4 py-4 px-6">
+                <CardContent className="grid items-end gap-4 px-5 py-4 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,12rem))_auto] sm:px-6">
                     <div className="space-y-1.5">
-                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+                        <label htmlFor="survey-start-date" className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Data Inicial
                         </label>
                         <Input
+                            id="survey-start-date"
                             type="date"
                             value={dataInicialDate ? format(dataInicialDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("start", e.target.value)}
-                            className="w-40 bg-white/5 border-white/10 focus:border-blue-500/50"
+                            className="w-full bg-white/5 border-white/10 focus:border-blue-500/50"
                         />
                     </div>
                     <div className="space-y-1.5">
-                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+                        <label htmlFor="survey-end-date" className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Data Final
                         </label>
                         <Input
+                            id="survey-end-date"
                             type="date"
                             value={dataFinalDate ? format(dataFinalDate, "yyyy-MM-dd") : ""}
                             onChange={(e) => handleDateChange("end", e.target.value)}
-                            className="w-40 bg-white/5 border-white/10 focus:border-blue-500/50"
+                            className="w-full bg-white/5 border-white/10 focus:border-blue-500/50"
                         />
                     </div>
                     <div className="space-y-1.5">
-                        <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+                        <label htmlFor="survey-analyst" className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
                             Analista
                         </label>
                         <Select
                             value={analistaFiltro || "todos"}
                             onValueChange={(v) => setAnalistaFiltro(v === "todos" ? undefined : v)}
                         >
-                            <SelectTrigger className="w-40 bg-white/5 border-white/10">
+                            <SelectTrigger id="survey-analyst" className="w-full bg-white/5 border-white/10">
                                 <SelectValue placeholder="Todos" />
                             </SelectTrigger>
                             <SelectContent>
@@ -533,8 +566,8 @@ export default function PesquisaSatisfacao() {
 
             {/* Tabela de detalhes */}
             <Card className="glass border-0 rounded-2xl overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between pb-3 px-6">
-                    <CardTitle className="flex items-center gap-3">
+                <CardHeader className="flex flex-col items-stretch justify-between gap-3 px-5 pb-3 sm:flex-row sm:items-center sm:px-6">
+                    <CardTitle className="flex min-w-0 flex-wrap items-center gap-3">
                         <div className="p-2 rounded-lg bg-gradient-to-br from-slate-500/20 to-slate-600/20">
                             <Calendar className="h-5 w-5 text-slate-400" />
                         </div>
@@ -543,10 +576,10 @@ export default function PesquisaSatisfacao() {
                             {pesquisasTabela.length} registros
                         </span>
                     </CardTitle>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-between gap-3 sm:justify-end">
                         <span className="text-sm text-slate-400">Exibir:</span>
                         <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                            <SelectTrigger className="w-20 bg-white/5 border-white/10">
+                            <SelectTrigger aria-label="Quantidade de pesquisas por página" className="w-20 bg-white/5 border-white/10">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -583,7 +616,7 @@ export default function PesquisaSatisfacao() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    pesquisasTabela.slice(0, pageSize).map((p, idx) => {
+                                    pesquisasTabela.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((p, idx) => {
                                         const nota = parseFloat(p.nota?.replace(',', '.') || '0');
                                         const dataCriacao = parseDateSafely(p.data_criacao);
                                         return (
@@ -606,9 +639,9 @@ export default function PesquisaSatisfacao() {
                                                         <TooltipProvider>
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
-                                                                    <span className="truncate block cursor-help text-slate-300">
+                                                                    <button type="button" className="block w-full truncate rounded text-left text-slate-300 focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Ler comentário completo: ${p.descricao_avaliacao}`}>
                                                                         {p.descricao_avaliacao}
-                                                                    </span>
+                                                                    </button>
                                                                 </TooltipTrigger>
                                                                 <TooltipContent side="top" className="max-w-[400px] whitespace-pre-wrap bg-slate-900 border-slate-700">
                                                                     <p>{p.descricao_avaliacao}</p>
@@ -645,6 +678,26 @@ export default function PesquisaSatisfacao() {
                         </Table>
                     </div>
                 </CardContent>
+                <div className="flex flex-col gap-3 border-t border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                    <p className="text-xs text-slate-400">
+                        Exibindo {pesquisasTabela.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, pesquisasTabela.length)} de {pesquisasTabela.length}
+                    </p>
+                    {Math.ceil(pesquisasTabela.length / pageSize) > 1 && (
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" className="border-white/10 bg-white/5" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1} aria-label="Página anterior">
+                                <ChevronLeft aria-hidden="true" />
+                                <span className="hidden sm:inline">Anterior</span>
+                            </Button>
+                            <span className="min-w-16 text-center text-xs text-slate-400">
+                                {currentPage} de {Math.ceil(pesquisasTabela.length / pageSize)}
+                            </span>
+                            <Button variant="outline" size="sm" className="border-white/10 bg-white/5" onClick={() => setCurrentPage((page) => Math.min(Math.ceil(pesquisasTabela.length / pageSize), page + 1))} disabled={currentPage >= Math.ceil(pesquisasTabela.length / pageSize)} aria-label="Próxima página">
+                                <span className="hidden sm:inline">Próxima</span>
+                                <ChevronRight aria-hidden="true" />
+                            </Button>
+                        </div>
+                    )}
+                </div>
             </Card>
         </div>
     );
