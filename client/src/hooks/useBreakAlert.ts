@@ -32,8 +32,6 @@ const MUSIC_SONGS = [
     { name: 'Queen - We Are Champions', paths: ['/music/queen-we-are-champions.mp3', '/music/queen-we-are-champions.mpeg'] },
     { name: 'Queen - We Will Rock You', paths: ['/music/queen-we-will-rock-you.mp3', '/music/queen-we-will-rock-you.mpeg'] },
     { name: 'Saliva - They Dont Care About Us', paths: ['/music/saliva-they-dont-care-about-us.mp3', '/music/saliva-they-dont-care-about-us.mpeg'] },
-    { name: 'System of a Down - P.L.U.C.K.', paths: ['/music/system-of-a-down-pluck.mp3', '/music/system-of-a-down-pluck.mpeg'] },
-    { name: 'Architects - Impermanence', paths: ['/music/architects-impermanence.mp3', '/music/architects-impermanence.mpeg'] },
     { name: "Bon Jovi - Livin' on a Prayer", paths: ['/music/bon-jovi-livin-on-a-prayer.mp3', '/music/bon-jovi-livin-on-a-prayer.mpeg'] },
     { name: 'De Los Cerros - La Escuela Beretta', paths: ['/music/de-los-cerros-la-escuela-beretta.mp3', '/music/de-los-cerros-la-escuela-beretta.mpeg'] },
     { name: 'Oasis - Wonderwall', paths: ['/music/oasis-wonderall.mp3', '/music/oasis-wonderall.mpeg'] },
