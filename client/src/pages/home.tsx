@@ -59,9 +59,18 @@ import {
   ArrowDown,
   Minus,
 } from "lucide-react";
-import jsPDF from "jspdf";
 import { newTicketsStore } from "@/stores/newTicketsStore";
-import { notificationStore } from "@/components/NotificationOverlay";
+import { notificationStore } from "@/stores/notificationStore";
+import { announcementQueue } from "@/services/announcementQueue";
+import {
+  classifyTicketReportSnapshot,
+  isTicketDeleted,
+  isTicketFinished,
+} from "@/services/ticketReportClassifier";
+import {
+  getAnsweredSatisfactionKey,
+  parseSatisfactionScore,
+} from "@/services/satisfactionSurveyClassifier";
 import { ManagementDashboard } from "@/components/management-dashboard";
 
 const META_RESPOSTA_MINUTOS = 5;
@@ -177,11 +186,82 @@ const parseDataPesquisa = (value?: string | null) => {
   return null;
 };
 
+const readOperatorCandidate = (value: unknown): string => {
+  if (typeof value === 'string') return value.trim();
+  if (!value || typeof value !== 'object') return '';
+
+  const record = value as Record<string, unknown>;
+  for (const key of ['nome', 'name', 'text', 'tecnico', 'operador']) {
+    if (typeof record[key] === 'string' && record[key].trim()) {
+      return record[key].trim();
+    }
+  }
+  return '';
+};
+
+const isAssignedOperatorName = (value: string) => {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+
+  return Boolean(normalized) && ![
+    'nao atribuido',
+    'sem tecnico',
+    'sem operador',
+    'null',
+    'undefined',
+    '[object object]',
+    '-',
+  ].includes(normalized);
+};
+
+const resolveTicketOperator = (ticket: any): string => {
+  const candidates = [
+    ticket?.tecnico,
+    ticket?.operador,
+    ticket?.nome,
+    ticket?.responsavel,
+    ticket?.atendente,
+    ticket?.ultima_log?.tecnico,
+    ticket?.ultimo_log?.tecnico,
+  ];
+
+  for (const candidate of candidates) {
+    const name = readOperatorCandidate(candidate);
+    if (isAssignedOperatorName(name)) return name;
+  }
+  return '';
+};
+
 export type HomeMode = "dashboard" | "management";
 
 interface HomeProps {
   mode?: HomeMode;
 }
+
+type SatisfactionAlertData = {
+  ticket: string;
+  razao_social: string;
+  operador: string;
+  nota: string;
+  contato: string;
+  descricao_avaliacao: string;
+  data_avaliacao: string;
+};
+
+const enqueueSatisfactionNotification = (pesquisa: SatisfactionAlertData) => {
+  notificationStore.add('pesquisa_satisfacao', {
+    ticket: pesquisa.ticket,
+    razao_social: pesquisa.razao_social,
+    operador: pesquisa.operador,
+    nota: pesquisa.nota,
+    contato: pesquisa.contato,
+    descricao_avaliacao: pesquisa.descricao_avaliacao,
+    data_avaliacao: pesquisa.data_avaliacao,
+  });
+};
 
 const MANAGEMENT_REFRESH_INTERVAL = 30_000;
 const MANAGEMENT_SOUND_KEY = "polo-bi-management-sound-enabled";
@@ -196,20 +276,19 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   const soundEnabledRef = useRef(
     !isManagement || localStorage.getItem(MANAGEMENT_SOUND_KEY) !== "false"
   );
+  const lastMilvus502ToastAtRef = useRef(0);
 
   const canPresentRealtimeAlert = () => document.visibilityState === "visible";
-  const canPlayRealtimeAudio = () =>
-    canPresentRealtimeAlert() && (!isManagement || soundEnabledRef.current);
 
   useEffect(() => {
+    announcementQueue.setMuted(isManagement && !soundEnabledRef.current);
+
     if (!isManagement) return;
 
     const handleSoundPreference = (event: Event) => {
       const detail = (event as CustomEvent<{ enabled?: boolean }>).detail;
       soundEnabledRef.current = detail?.enabled !== false;
-      if (!soundEnabledRef.current && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      announcementQueue.setMuted(!soundEnabledRef.current);
     };
 
     window.addEventListener(MANAGEMENT_SOUND_EVENT, handleSoundPreference);
@@ -229,6 +308,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     });
 
     try {
+      const { default: jsPDF } = await import('jspdf');
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -382,24 +462,44 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
   const [previousTicketCount, setPreviousTicketCount] = useState<number | null>(null);
 
-  // Mapa para rastrear status dos tickets: { codigo: status.text }
-  const previousTicketStatusesRef = useRef<Map<number, string>>(new Map());
-
   // Set para rastrear IDs de chamados abertos anteriores
   const previousOpenTicketIdsRef = useRef<Set<number>>(new Set());
-  // Ref para guardar informações completas dos chamados abertos anteriores (para notificação de finalização)
-  const previousOpenTicketsRef = useRef<any[]>([]);
   const openTicketsInitializedRef = useRef<boolean>(false);
 
   // Mapa para rastrear técnico atribuído por chamado: { codigo: tecnico }
   const previousTicketTecnicosRef = useRef<Map<number, string>>(new Map());
 
+  type TicketContext = { assunto?: string; cliente?: string; operador?: string };
+  const ticketContextCacheRef = useRef<Map<string, TicketContext>>(new Map());
+  const openTicketsRequestSequenceRef = useRef(0);
+  const lastAppliedOpenTicketsRequestRef = useRef(0);
+  const initialOpenTicketsRequestedRef = useRef(false);
+
+  const cacheOpenTicketContexts = (tickets: any[]) => {
+    tickets.forEach((ticket) => {
+      const codigo = String(ticket.codigo || ticket.id || "").trim();
+      if (!codigo) return;
+
+      const previous = ticketContextCacheRef.current.get(codigo);
+      ticketContextCacheRef.current.set(codigo, {
+        assunto: ticket.assunto || previous?.assunto,
+        cliente: ticket.nome_fantasia || ticket.cliente || previous?.cliente,
+        operador: resolveTicketOperator(ticket) || previous?.operador,
+      });
+    });
+  };
+
   // SLA Primeiro Atendimento: timers para chamados sem operador
   // Cada entrada guarda os IDs dos timeouts de 4min (aviso) e 5min (estourado)
   const slaTimersRef = useRef<Map<number, { avisoTimer: ReturnType<typeof setTimeout> | null; estouradoTimer: ReturnType<typeof setTimeout> | null }>>(new Map());
 
-  // Ref para rastrear se houve erro de API recente (evitar falsos positivos de finalização)
-  const hadApiErrorRef = useRef<boolean>(false);
+  const clearSlaTimers = (codigo: number) => {
+    const timers = slaTimersRef.current.get(codigo);
+    if (!timers) return;
+    if (timers.avisoTimer) clearTimeout(timers.avisoTimer);
+    if (timers.estouradoTimer) clearTimeout(timers.estouradoTimer);
+    slaTimersRef.current.delete(codigo);
+  };
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
@@ -460,6 +560,8 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
   // Função para buscar chamados abertos
   const fetchOpenTickets = async () => {
+    const requestSequence = ++openTicketsRequestSequenceRef.current;
+
     try {
       const response = await fetch('/api/proxy/chamado/listagem', {
         method: 'POST',
@@ -467,39 +569,20 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         body: JSON.stringify({ status: 'ChamadosAbertos', total_registros: 100 }),
       });
 
-      // Detectar erros 5xx e ativar flag de proteção
       if (!response.ok) {
-        if (response.status >= 500 && response.status < 600) {
-          console.error(`🚨 Erro 5xx na API de chamados abertos: ${response.status}`);
-          hadApiErrorRef.current = true;
-        }
-        return [];
+        console.error(`🚨 Erro na API de chamados abertos: ${response.status}`);
+        return null;
       }
 
       const data = await response.json();
-      return data?.lista || [];
+      if (!Array.isArray(data?.lista)) return null;
+      if (requestSequence < lastAppliedOpenTicketsRequestRef.current) return null;
+      lastAppliedOpenTicketsRequestRef.current = requestSequence;
+      cacheOpenTicketContexts(data.lista);
+      return data.lista;
     } catch (e) {
       console.error('Erro ao buscar chamados abertos:', e);
-      // Também ativar flag em caso de erro de rede
-      hadApiErrorRef.current = true;
-      return [];
-    }
-  };
-
-  // Função para buscar últimos finalizados (para detecção de alertas)
-  const fetchLastFinishedTickets = async () => {
-    try {
-      const response = await fetch('/api/proxy/chamado/listagem', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Finalizado', total_registros: 10 }), // Pega os 10 últimos
-      });
-      if (!response.ok) return [];
-      const data = await response.json();
-      return data?.lista || [];
-    } catch (e) {
-      console.error('Erro ao buscar chamados finalizados:', e);
-      return [];
+      return null;
     }
   };
 
@@ -509,48 +592,59 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   // Rastrear pesquisas já vistas para detectar novas (usando ticket como chave única)
   const previousPesquisaTicketsRef = useRef<Set<string>>(new Set());
   const pesquisasInitializedRef = useRef<boolean>(false);
+  const pesquisaNotificationSequenceRef = useRef(0);
+  const lastAppliedPesquisaNotificationRef = useRef(0);
+  const pesquisaAuxiliarySequenceRef = useRef(0);
+  const lastAppliedPesquisaAuxiliaryRef = useRef(0);
+  const auxiliaryPesquisaFilterKeyRef = useRef<string | null>(null);
 
   // Função para buscar pesquisas de satisfação
-  const fetchPesquisas = async () => {
+  const fetchPesquisas = async (
+    detectNotifications = true,
+    enqueueNotifications = true,
+  ) => {
+    const sequenceRef = detectNotifications
+      ? pesquisaNotificationSequenceRef
+      : pesquisaAuxiliarySequenceRef;
+    const lastAppliedRef = detectNotifications
+      ? lastAppliedPesquisaNotificationRef
+      : lastAppliedPesquisaAuxiliaryRef;
+    const requestSequence = ++sequenceRef.current;
+
     try {
       const response = await fetch('/api/proxy/pesquisas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      if (!response.ok) return;
+      if (!response.ok) return null;
       const data = await response.json();
-      const pesquisas = data?.lista || [];
+      if (!Array.isArray(data?.lista)) return null;
+      if (requestSequence < lastAppliedRef.current) return null;
+      lastAppliedRef.current = requestSequence;
+      const pesquisas = data.lista;
 
       // Detectar NOVAS pesquisas de satisfação respondidas
       // Chave única: ticket + nota + operador (identifica avaliação específica)
       const currentPesquisaKeys = new Set<string>();
-      const novasPesquisas: Array<{ ticket: string; razao_social: string; operador: string; nota: string; contato: string; descricao_avaliacao: string }> = [];
-
-      // Helper: verificar se data_avaliacao é de hoje
-      const isHoje = (dataStr: string): boolean => {
-        if (!dataStr) return false;
-        const hoje = new Date();
-        const hojeStr = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
-        // Formato esperado: "DD/MM/YYYY HH:MM" ou "DD/MM/YYYY"
-        return dataStr.startsWith(hojeStr);
-      };
+      const novasPesquisas: SatisfactionAlertData[] = [];
 
       pesquisas.forEach((p: any) => {
-        if (p.ticket_excluido === 'Sim') return;
-        if (!p.nota || !p.ticket) return; // Sem nota = não foi avaliado ainda
-        const chave = `${p.ticket}_${p.operador || ''}_${p.nota}_${p.data_avaliacao || ''}`;
+        if (isTicketDeleted(p.ticket_excluido)) return;
+        const chave = getAnsweredSatisfactionKey(p);
+        if (!chave) return;
         currentPesquisaKeys.add(chave);
       });
 
-      if (pesquisasInitializedRef.current) {
+      const wasInitialized = pesquisasInitializedRef.current;
+
+      if (wasInitialized && detectNotifications) {
         // Encontrar pesquisas que não existiam no polling anterior
         pesquisas.forEach((p: any) => {
-          if (p.ticket_excluido === 'Sim') return;
-          if (!p.nota || !p.ticket) return;
-          const chave = `${p.ticket}_${p.operador || ''}_${p.nota}_${p.data_avaliacao || ''}`;
+          if (isTicketDeleted(p.ticket_excluido)) return;
+          const chave = getAnsweredSatisfactionKey(p);
+          if (!chave) return;
 
-          // Só notificar se: (1) não existia antes E (2) a avaliação é de HOJE
-          if (!previousPesquisaTicketsRef.current.has(chave) && isHoje(p.data_avaliacao)) {
+          if (!previousPesquisaTicketsRef.current.has(chave)) {
             console.log('⭐ NOVA PESQUISA DE SATISFAÇÃO:', p.ticket, '- Operador:', p.operador, '- Nota:', p.nota, '- Data:', p.data_avaliacao);
             novasPesquisas.push({
               ticket: p.ticket || '',
@@ -559,70 +653,25 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
               nota: p.nota || '',
               contato: p.contato || '',
               descricao_avaliacao: p.descricao_avaliacao || '',
+              data_avaliacao: p.data_avaliacao || '',
             });
           }
         });
-      } else {
+      } else if (!wasInitialized) {
         console.log('📋 Pesquisas - Primeira execução, inicializando base com', currentPesquisaKeys.size, 'pesquisas');
         pesquisasInitializedRef.current = true;
       }
 
-      // Atualizar ref para próxima comparação
-      previousPesquisaTicketsRef.current = currentPesquisaKeys;
+      // Consultas apenas para filtros não consomem eventos antes do polling coordenado.
+      if (!wasInitialized || detectNotifications) {
+        currentPesquisaKeys.forEach((key) => previousPesquisaTicketsRef.current.add(key));
+      }
 
-      // Disparar notificações para novas pesquisas
-      if (novasPesquisas.length > 0 && canPresentRealtimeAlert()) {
+      // A store coordena card, tom e fala em FIFO, sem cortar outros avisos.
+      if (novasPesquisas.length > 0 && enqueueNotifications) {
         console.log('⭐ Total de novas pesquisas detectadas:', novasPesquisas.length);
 
-        // Som de pesquisa (melodia harmônica positiva)
-        if (canPlayRealtimeAudio()) try {
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const playTone = (startTime: number, frequency: number, duration: number) => {
-            const osc = audioContext.createOscillator();
-            const gain = audioContext.createGain();
-            osc.connect(gain);
-            gain.connect(audioContext.destination);
-            osc.frequency.value = frequency;
-            osc.type = 'sine';
-            gain.gain.setValueAtTime(0.15, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-            osc.start(startTime);
-            osc.stop(startTime + duration);
-          };
-          const now = audioContext.currentTime;
-          playTone(now, 523, 0.15);       // C5
-          playTone(now + 0.12, 659, 0.15); // E5
-          playTone(now + 0.24, 784, 0.15); // G5
-          playTone(now + 0.36, 1047, 0.15); // C6
-          playTone(now + 0.5, 784, 0.25);  // G5
-        } catch (e) { console.log('Audio não suportado'); }
-
-        // Cards visuais (máximo 3)
-        novasPesquisas.slice(0, 3).forEach((pesquisa, index) => {
-          setTimeout(() => {
-            if (!canPresentRealtimeAlert()) return;
-            notificationStore.add('pesquisa_satisfacao', {
-              ticket: pesquisa.ticket,
-              razao_social: pesquisa.razao_social,
-              operador: pesquisa.operador,
-              nota: pesquisa.nota,
-              contato: pesquisa.contato,
-              descricao_avaliacao: pesquisa.descricao_avaliacao,
-            }, 12000);
-          }, index * 800);
-        });
-
-        // Voz
-        setTimeout(() => {
-          const primeira = novasPesquisas[0];
-          const cliente = primeira.razao_social || primeira.contato || 'um cliente';
-          const operador = primeira.operador || 'um operador';
-          if (novasPesquisas.length === 1) {
-            speakAnnouncement(`Atenção! O cliente ${cliente} respondeu a pesquisa de satisfação de um dos chamados do Operador ${operador}`);
-          } else {
-            speakAnnouncement(`Atenção! ${novasPesquisas.length} novas pesquisas de satisfação foram respondidas!`);
-          }
-        }, 500);
+        novasPesquisas.forEach(enqueueSatisfactionNotification);
       }
 
       // Calcular ranking por quantidade de pesquisas avaliadas (com nota)
@@ -635,7 +684,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
       pesquisas.forEach((p: any) => {
         // Ignorar tickets excluídos
-        if (p.ticket_excluido === 'Sim') return;
+        if (isTicketDeleted(p.ticket_excluido)) return;
 
         // Aplicar filtro de data se existir
         if (dataInicialDate && dataFinalDate) {
@@ -647,8 +696,8 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
           }
         }
 
-        if (p.operador && p.nota && !isNaN(parseFloat(p.nota.replace(',', '.')))) {
-          const nota = parseFloat(p.nota.replace(',', '.'));
+        const nota = parseSatisfactionScore(p.nota);
+        if (p.operador && nota !== null) {
           const atual = map.get(p.operador) || { quantidade: 0, somaNotas: 0 };
           map.set(p.operador, { quantidade: atual.quantidade + 1, somaNotas: atual.somaNotas + nota });
         }
@@ -669,20 +718,27 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         })
         .slice(0, 3);
       setRankingPesquisas(ranking);
+      return { notifications: novasPesquisas.length, events: novasPesquisas };
     } catch (e) {
       console.error('Erro ao buscar pesquisas:', e);
+      return null;
     }
   };
 
   // Buscar pesquisas ao montar o componente
   // Buscar pesquisas ao montar o componente ou mudar filtros
   useEffect(() => {
-    fetchPesquisas();
-  }, [filters.data_inicial, filters.data_final]);
+    const filterKey = `${filters.data_inicial || ''}|${filters.data_final || ''}`;
+    if (isFetching || auxiliaryPesquisaFilterKeyRef.current === filterKey) return;
+    auxiliaryPesquisaFilterKeyRef.current = filterKey;
+    void fetchPesquisas(false);
+  }, [filters.data_inicial, filters.data_final, isFetching]);
 
   // ========== RELATÓRIO DE TICKETS DETALHADO (para cálculos de tempo precisos) ==========
   interface TicketDetalhado {
     ticket: string;
+    contato?: string;
+    nome_fantasia?: string;
     data_criacao: string;
     hora_criacao: string;
     data_primeiro_atendimento: string;
@@ -707,21 +763,132 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
   const [ticketsDetalhados, setTicketsDetalhados] = useState<TicketDetalhado[]>([]);
   const [isLoadingTicketsDetalhados, setIsLoadingTicketsDetalhados] = useState(false);
+  const ticketReportInitializedRef = useRef(false);
+  const ticketReportSequenceRef = useRef(0);
+  const lastAppliedTicketReportRef = useRef(0);
+  const previousDetailedTicketsRef = useRef<Map<string, TicketDetalhado>>(new Map());
+  const notifiedDeletedTicketsRef = useRef<Set<string>>(new Set());
+  const notifiedFinishedTicketsRef = useRef<Set<string>>(new Set());
+  const initialTicketReportRequestedRef = useRef(false);
 
   // Função para buscar relatório de tickets detalhado
   const fetchRelatorioTickets = async () => {
+    const requestSequence = ++ticketReportSequenceRef.current;
+
     try {
       setIsLoadingTicketsDetalhados(true);
       const response = await fetch('/api/proxy/relatorio-tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      if (!response.ok) return;
+      if (!response.ok) return null;
       const data = await response.json();
-      console.log('🔄 fetchRelatorioTickets - Atualizando dados:', data?.lista?.length, 'registros');
-      setTicketsDetalhados(data?.lista || []);
+      if (!Array.isArray(data?.lista)) return null;
+
+      // Uma resposta mais antiga nunca pode fazer o baseline retroceder.
+      if (requestSequence < lastAppliedTicketReportRef.current) return null;
+      lastAppliedTicketReportRef.current = requestSequence;
+
+      const currentTickets = data.lista as TicketDetalhado[];
+      console.log('🔄 fetchRelatorioTickets - Atualizando dados:', currentTickets.length, 'registros');
+
+      // Uma resposta inicial vazia pode ser atraso do relatório; aguarda dados confirmáveis.
+      if (!ticketReportInitializedRef.current && currentTickets.length === 0) {
+        setTicketsDetalhados([]);
+        return { notifications: 0 };
+      }
+
+      if (
+        ticketReportInitializedRef.current &&
+        currentTickets.length === 0 &&
+        previousDetailedTicketsRef.current.size > 0
+      ) {
+        console.warn('⚠️ Relatório Ticket vazio; mantendo dados e baseline anteriores');
+        return null;
+      }
+
+      setTicketsDetalhados(currentTickets);
+
+      const currentById = new Map<string, TicketDetalhado>();
+      currentTickets.forEach((ticket) => {
+        const ticketId = String(ticket.ticket || '').trim();
+        if (!ticketId) return;
+        currentById.set(ticketId, ticket);
+
+        const cached = ticketContextCacheRef.current.get(ticketId);
+        ticketContextCacheRef.current.set(ticketId, {
+          assunto: cached?.assunto,
+          cliente: cached?.cliente || ticket.nome_fantasia || ticket.contato,
+          operador: ticket.operador || cached?.operador,
+        });
+      });
+
+      // A primeira resposta é apenas baseline: não reproduz exclusões/finalizações históricas.
+      if (!ticketReportInitializedRef.current) {
+        previousDetailedTicketsRef.current = currentById;
+        currentById.forEach((ticket, ticketId) => {
+          if (isTicketDeleted(ticket.ticket_excluido)) notifiedDeletedTicketsRef.current.add(ticketId);
+          if (isTicketFinished(ticket.status)) notifiedFinishedTicketsRef.current.add(ticketId);
+        });
+        ticketReportInitializedRef.current = true;
+        return { notifications: 0 };
+      }
+
+      let notifications = 0;
+      const { nextBaseline, transitions } = classifyTicketReportSnapshot(
+        previousDetailedTicketsRef.current,
+        currentTickets,
+        notifiedDeletedTicketsRef.current,
+      );
+
+      for (const transition of transitions) {
+        const { ticketId, current: ticket, type } = transition;
+        const codigo = Number(ticketId);
+        if (!Number.isFinite(codigo)) continue;
+
+        const context = ticketContextCacheRef.current.get(ticketId);
+        const cliente = context?.cliente || ticket.nome_fantasia || ticket.contato || 'Cliente';
+        const operador = ticket.operador || context?.operador || 'Operador';
+        const assunto = context?.assunto || 'Chamado finalizado';
+
+        if (type === 'deleted' && !notifiedDeletedTicketsRef.current.has(ticketId)) {
+          notifiedDeletedTicketsRef.current.add(ticketId);
+          clearSlaTimers(codigo);
+          notificationStore.add('chamado_excluido', {
+            codigo,
+            assunto: context?.assunto,
+            nome_fantasia: cliente,
+            nome: operador,
+            operador,
+            detectedAt: Date.now(),
+          });
+          notifications += 1;
+          continue;
+        }
+
+        // Exclusão nunca é inferida/narrada como finalização.
+        if (
+          type === 'finalized' &&
+          !notifiedFinishedTicketsRef.current.has(ticketId)
+        ) {
+          notifiedFinishedTicketsRef.current.add(ticketId);
+          clearSlaTimers(codigo);
+          notificationStore.add('finalizado', {
+            codigo,
+            assunto,
+            nome: operador,
+            nome_fantasia: cliente,
+          });
+          notifications += 1;
+        }
+      }
+
+      // Registros ausentes são mantidos: atraso parcial do relatório não apaga o baseline.
+      previousDetailedTicketsRef.current = nextBaseline;
+      return { notifications };
     } catch (e) {
       console.error('Erro ao buscar relatório de tickets:', e);
+      return null;
     } finally {
       setIsLoadingTicketsDetalhados(false);
     }
@@ -729,8 +896,10 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
   // Buscar relatório de tickets ao montar
   useEffect(() => {
-    fetchRelatorioTickets();
-  }, []);
+    if (isFetching || initialTicketReportRequestedRef.current) return;
+    initialTicketReportRequestedRef.current = true;
+    void fetchRelatorioTickets();
+  }, [isFetching]);
 
   // Função para parsear data+hora do CSV (formato dd/MM/yyyy e HH:mm:ss)
   const parseDataHoraCSV = (data: string, hora: string): Date | null => {
@@ -1018,161 +1187,215 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
   // ========== END RELATÓRIO DE TICKETS ==========
 
+  type OpenTicketAlertData = {
+    codigo: number;
+    assunto: string;
+    nome_fantasia?: string;
+    data_criacao?: string;
+    status?: string | { text?: string };
+    mesa_trabalho?: string | { text?: string };
+    nome?: string;
+  };
+
+  type OpenTicketLifecycleEvent = {
+    type: 'novo_chamado' | 'chamado_atribuido';
+    ticket: OpenTicketAlertData;
+  };
+
+  const enqueueOpenTicketLifecycleEvent = ({ type, ticket }: OpenTicketLifecycleEvent) => {
+    if (type === 'novo_chamado') {
+      notificationStore.add('novo_chamado', {
+        codigo: ticket.codigo,
+        assunto: ticket.assunto,
+        nome_fantasia: ticket.nome_fantasia,
+        data_criacao: ticket.data_criacao,
+        status: typeof ticket.status === 'object' ? ticket.status?.text : ticket.status,
+        mesa_trabalho: typeof ticket.mesa_trabalho === 'object' ? ticket.mesa_trabalho?.text : ticket.mesa_trabalho,
+        nome: ticket.nome,
+      });
+      return;
+    }
+
+    notificationStore.add('chamado_atribuido', {
+      codigo: ticket.codigo,
+      assunto: ticket.assunto,
+      nome: ticket.nome,
+      nome_fantasia: ticket.nome_fantasia,
+    });
+  };
+
+  const processOpenTicketEvents = (openTickets: any[], enqueueNotifications = true) => {
+    const wasInitialized = openTicketsInitializedRef.current;
+    const seenIds = previousOpenTicketIdsRef.current;
+    const previousTecnicos = previousTicketTecnicosRef.current;
+    const novosChamados: OpenTicketAlertData[] = [];
+    const chamadosAtribuidos: OpenTicketAlertData[] = [];
+    const orderedEvents: OpenTicketLifecycleEvent[] = [];
+
+    cacheOpenTicketContexts(openTickets);
+
+    if (wasInitialized) {
+      openTickets.forEach((ticket) => {
+        const codigo = Number(ticket.codigo || ticket.id);
+        if (!Number.isFinite(codigo)) return;
+
+        const tecnicoAtual = resolveTicketOperator(ticket);
+        const tecnicoAnterior = String(previousTecnicos.get(codigo) || '').trim();
+        const isNewTicket = !seenIds.has(codigo);
+        const eventData: OpenTicketAlertData = {
+          codigo,
+          assunto: ticket.assunto || 'Sem assunto',
+          nome_fantasia: ticket.nome_fantasia || ticket.cliente || '',
+          data_criacao: ticket.data_criacao || ticket.data_abertura || new Date().toISOString(),
+          status: ticket.status || { text: 'Aberto' },
+          mesa_trabalho: ticket.mesa_trabalho || { text: 'Suporte' },
+          nome: tecnicoAtual || 'Não atribuído',
+        };
+
+        if (isNewTicket) {
+          console.log('🆕 NOVO CHAMADO DETECTADO:', codigo, eventData.assunto);
+          novosChamados.push(eventData);
+          orderedEvents.push({ type: 'novo_chamado', ticket: eventData });
+        }
+
+        if (
+          tecnicoAtual &&
+          tecnicoAtual !== 'Não atribuído' &&
+          (isNewTicket || !tecnicoAnterior || tecnicoAnterior === 'Não atribuído')
+        ) {
+          console.log('🙋 OPERADOR PEGOU CHAMADO:', codigo, '→', tecnicoAtual);
+          chamadosAtribuidos.push(eventData);
+          orderedEvents.push({ type: 'chamado_atribuido', ticket: eventData });
+        }
+      });
+    } else {
+      openTicketsInitializedRef.current = true;
+      console.log('📋 Primeira execução - inicializando baseline de chamados abertos');
+    }
+
+    // Abertura sempre entra antes da atribuição detectada no mesmo polling.
+    if (novosChamados.length > 0) {
+      newTicketsStore.addTickets(novosChamados.map((ticket) => ({
+        ...ticket,
+        status: typeof ticket.status === 'object'
+          ? { text: ticket.status?.text || 'Aberto' }
+          : { text: ticket.status || 'Aberto' },
+        mesa_trabalho: typeof ticket.mesa_trabalho === 'object'
+          ? { text: ticket.mesa_trabalho?.text || 'Suporte' }
+          : { text: ticket.mesa_trabalho || 'Suporte' },
+      })));
+    }
+
+    novosChamados.forEach((ticket) => {
+      const tecnico = String(ticket.nome || '').trim();
+      if ((tecnico && tecnico !== 'Não atribuído') || slaTimersRef.current.has(ticket.codigo)) return;
+
+      const { codigo, assunto } = ticket;
+      const cliente = ticket.nome_fantasia || 'Desconhecido';
+      const avisoTimer = setTimeout(() => {
+        if (!slaTimersRef.current.has(codigo)) return;
+        notificationStore.add('sla_aviso', {
+          codigo,
+          assunto,
+          nome_fantasia: cliente,
+          minutos: 4,
+        });
+      }, 4 * 60 * 1000);
+
+      const estouradoTimer = setTimeout(() => {
+        if (!slaTimersRef.current.has(codigo)) return;
+        notificationStore.add('sla_estourado', {
+          codigo,
+          assunto,
+          nome_fantasia: cliente,
+        });
+        slaTimersRef.current.delete(codigo);
+      }, 5 * 60 * 1000);
+
+      slaTimersRef.current.set(codigo, { avisoTimer, estouradoTimer });
+    });
+
+    chamadosAtribuidos.forEach((ticket) => clearSlaTimers(ticket.codigo));
+    if (enqueueNotifications) orderedEvents.forEach(enqueueOpenTicketLifecycleEvent);
+
+    const nextSeenIds = new Set(seenIds);
+    const nextTecnicos = new Map(previousTecnicos);
+    openTickets.forEach((ticket) => {
+      const codigo = Number(ticket.codigo || ticket.id);
+      if (!Number.isFinite(codigo)) return;
+      nextSeenIds.add(codigo);
+      nextTecnicos.set(codigo, resolveTicketOperator(ticket));
+    });
+    previousOpenTicketIdsRef.current = nextSeenIds;
+    previousTicketTecnicosRef.current = nextTecnicos;
+
+    return { novosChamados, chamadosAtribuidos, events: orderedEvents };
+  };
+
+  type GroupedTicketLifecycleEvent =
+    | { kind: 'open'; event: OpenTicketLifecycleEvent }
+    | { kind: 'rating'; event: SatisfactionAlertData };
+
+  const ticketGroupKey = (value: string | number) => {
+    const normalized = String(value ?? '').trim();
+    const numeric = Number(normalized);
+    return normalized && Number.isFinite(numeric) ? String(numeric) : normalized;
+  };
+
+  const enqueueGroupedTicketLifecycle = (
+    openEvents: OpenTicketLifecycleEvent[],
+    satisfactionEvents: SatisfactionAlertData[],
+  ) => {
+    const groupOrder: string[] = [];
+    const groups = new Map<string, GroupedTicketLifecycleEvent[]>();
+
+    const append = (key: string, event: GroupedTicketLifecycleEvent) => {
+      if (!groups.has(key)) {
+        groups.set(key, []);
+        groupOrder.push(key);
+      }
+      groups.get(key)!.push(event);
+    };
+
+    openEvents.forEach((event) => {
+      append(ticketGroupKey(event.ticket.codigo), { kind: 'open', event });
+    });
+    satisfactionEvents.forEach((event) => {
+      append(ticketGroupKey(event.ticket), { kind: 'rating', event });
+    });
+
+    groupOrder.forEach((key) => {
+      groups.get(key)?.forEach((groupedEvent) => {
+        if (groupedEvent.kind === 'open') {
+          enqueueOpenTicketLifecycleEvent(groupedEvent.event);
+        } else {
+          enqueueSatisfactionNotification(groupedEvent.event);
+        }
+      });
+    });
+  };
+
   // Buscar chamados ativos (Atendendo + Pausado) ao carregar a página
   useEffect(() => {
+    if (isFetching || initialOpenTicketsRequestedRef.current) return;
+    initialOpenTicketsRequestedRef.current = true;
+
     const loadChamadosAtivos = async () => {
       const chamados = await fetchOpenTickets();
+      if (!chamados) return;
       // Filtrar apenas Atendendo e Pausado
       const ativos = chamados.filter((c: any) =>
         c.status === 'Atendendo' || c.status === 'Pausado'
       );
       setChamadosAtivos(ativos);
       setOpenTicketsCount(ativos.length);
+      processOpenTicketEvents(chamados);
     };
-    loadChamadosAtivos();
-  }, []);
+    void loadChamadosAtivos();
+  }, [isFetching]);
 
-  // Função para tocar som de alerta (novo chamado)
-  const playNewTicketSound = () => {
-    if (!canPlayRealtimeAudio()) return;
-
-    try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const playBeep = (startTime: number, frequency: number, duration: number) => {
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        oscillator.frequency.value = frequency;
-        oscillator.type = 'square';
-        gainNode.gain.setValueAtTime(0.25, startTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-        oscillator.start(startTime);
-        oscillator.stop(startTime + duration);
-      };
-      const now = audioContext.currentTime;
-      // Sequência de alerta urgente
-      playBeep(now, 880, 0.1);
-      playBeep(now + 0.15, 880, 0.1);
-      playBeep(now + 0.3, 1100, 0.1);
-      playBeep(now + 0.45, 1100, 0.1);
-      playBeep(now + 0.6, 1320, 0.3);
-    } catch (e) {
-      console.log('Audio não suportado');
-    }
-  };
-
-  // Função para falar anúncios (aguarda vozes carregarem)
-  const speakAnnouncement = (text: string) => {
-    if (!canPlayRealtimeAudio()) return;
-
-    console.log('🔊 speakAnnouncement chamado com:', text);
-
-    if (!('speechSynthesis' in window)) {
-      console.error('❌ SpeechSynthesis não suportado neste navegador');
-      return;
-    }
-
-    const speak = () => {
-      if (!canPlayRealtimeAudio()) return;
-
-      try {
-        console.log('🔊 Executando speak()...');
-        window.speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'pt-BR';
-        utterance.rate = 1.0;
-        utterance.pitch = 1.1;
-        utterance.volume = 1.0;
-
-        const voices = window.speechSynthesis.getVoices();
-        console.log('🔊 Vozes disponíveis:', voices.length);
-
-        // Priorizar voz masculina "Daniel" (Microsoft) ou "Paulo"
-        let targetVoice = voices.find(v => v.name.includes('Daniel') && v.lang.includes('pt'));
-
-        if (!targetVoice) {
-          targetVoice = voices.find(v => v.name.includes('Paulo') && v.lang.includes('pt'));
-        }
-
-        if (!targetVoice) {
-          // Tentar Google masculino ou qualquer voz em português
-          targetVoice = voices.find(v => v.name.includes('Google') && v.lang.includes('pt'));
-        }
-
-        if (!targetVoice) {
-          targetVoice = voices.find(voice => voice.lang.includes('pt'));
-        }
-
-        if (targetVoice) {
-          console.log('🔊 Usando voz:', targetVoice.name);
-          utterance.voice = targetVoice;
-        } else {
-          console.log('🔊 Usando voz padrão (nenhuma correspondência encontrada)');
-        }
-
-        utterance.onstart = () => console.log('🔊 Iniciando fala...');
-        utterance.onend = () => console.log('🔊 Fala concluída!');
-        utterance.onerror = (e) => console.error('❌ Erro na fala:', e.error);
-
-        window.speechSynthesis.speak(utterance);
-        console.log('🔊 Fala enfileirada com sucesso');
-      } catch (error) {
-        console.error('❌ Erro ao tentar falar:', error);
-      }
-    };
-
-    // Se as vozes já estão carregadas, fala imediatamente
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      console.log('🔊 Vozes já carregadas, falando imediatamente');
-      speak();
-    } else {
-      console.log('🔊 Aguardando carregamento das vozes...');
-      // Aguarda as vozes carregarem
-      const onVoicesChanged = () => {
-        console.log('🔊 Vozes carregadas!');
-        window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
-        speak();
-      };
-      window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
-
-      // Timeout fallback caso as vozes não carreguem
-      setTimeout(() => {
-        const nowVoices = window.speechSynthesis.getVoices();
-        if (nowVoices.length > 0) {
-          console.log('🔊 Fallback: vozes carregadas após timeout');
-          window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
-          speak();
-        } else {
-          console.error('❌ Vozes não carregaram após timeout');
-        }
-      }, 1000);
-    }
-  };
-
-  // Pré-carregar vozes do speechSynthesis ao montar o componente
-  useEffect(() => {
-    if ('speechSynthesis' in window) {
-      // Força o carregamento das vozes
-      window.speechSynthesis.getVoices();
-      // Chrome carrega vozes de forma assíncrona
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices();
-      };
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== "visible" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  useEffect(() => () => {
+    slaTimersRef.current.forEach((_, codigo) => clearSlaTimers(codigo));
   }, []);
 
   // Listener para erros da API do Milvus (500, 502, 503, 504)
@@ -1182,19 +1405,26 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
       console.error(`🚨 Erro da API Milvus detectado: ${status} ${message} [${endpoint}]`);
 
-      // Marcar que houve erro de API para evitar falsos positivos de finalização
-      hadApiErrorRef.current = true;
-      console.log('⚠️ Flag de erro de API ativada - próximas respostas vazias serão ignoradas');
-
-      // Mostrar card de alerta grande (sem áudio, apenas visual)
-      if (canPresentRealtimeAlert()) {
-        notificationStore.add('erro_milvus', {
-          status,
-          message,
-          endpoint,
-          timestamp,
-        }, 12000);
+      // 502 é transitório e não deve ocupar nem falar na fila de chamados.
+      if (Number(status) === 502) {
+        const now = Date.now();
+        if (now - lastMilvus502ToastAtRef.current > 30_000) {
+          lastMilvus502ToastAtRef.current = now;
+          toast({
+            title: "MILVUS temporariamente indisponível",
+            description: "A atualização será tentada novamente sem interromper os avisos de chamados.",
+            variant: "destructive",
+          });
+        }
+        return;
       }
+
+      notificationStore.add('erro_milvus', {
+        status,
+        message,
+        endpoint,
+        timestamp,
+      });
     };
 
     // Adicionar listener
@@ -1250,14 +1480,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       const newTickets = result.data?.lista || [];
       const newTicketCount = newTickets.length;
 
-      // 2. Atualizar ranking de pesquisas (Top Avaliados)
-      await fetchPesquisas();
-
-      // 2.1 Atualizar dados de SLA (do relatório de tickets CSV)
-      await fetchRelatorioTickets();
-
-      // 3. Buscar chamados abertos
+      // 2. Buscar chamados abertos e publicar abertura antes de atribuição.
       const openTickets = await fetchOpenTickets();
+      if (!openTickets) throw new Error('Falha ao consultar chamados abertos');
       console.log('📋 Chamados abertos recebidos:', openTickets.length);
 
       // Atualizar chamados ativos (Atendendo + Pausado) para exibição na Visão Geral
@@ -1267,456 +1492,20 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       setChamadosAtivos(ativos);
       setOpenTicketsCount(ativos.length);
 
-      // 3. Detectar NOVOS chamados abertos
-      const currentOpenIds = new Set<number>(openTickets.map((t: any) => t.codigo || t.id));
-      console.log('📋 IDs atuais:', Array.from(currentOpenIds));
-      console.log('📋 IDs anteriores:', Array.from(previousOpenTicketIdsRef.current));
-      console.log('📋 Inicializado?', openTicketsInitializedRef.current);
-      console.log('📋 Houve erro de API anterior?', hadApiErrorRef.current);
+      const openEventResult = processOpenTicketEvents(openTickets, false);
+      const { novosChamados, chamadosAtribuidos } = openEventResult;
 
-      // PROTEÇÃO: Se a resposta veio vazia (0 IDs) e havia dados anteriores, verificar se houve erro de API
-      // Se houve erro, ignorar essa resposta e manter os dados anteriores
-      if (currentOpenIds.size === 0 && previousOpenTicketIdsRef.current.size > 0) {
-        if (hadApiErrorRef.current) {
-          console.log('⚠️ PROTEÇÃO: Ignorando resposta vazia devido a erro de API anterior');
-          console.log('⚠️ Mantendo IDs anteriores:', Array.from(previousOpenTicketIdsRef.current));
-          // Resetar flag de erro
-          hadApiErrorRef.current = false;
-          // NÃO atualizar os IDs - manter os anteriores
-          setIsRefreshing(false);
-          return; // Sair da função sem processar finalizações falsas
-        }
-      }
+      // Junta abertura, atribuição e avaliação por chamado antes de publicar na FIFO.
+      const pesquisaResult = await fetchPesquisas(true, false);
+      enqueueGroupedTicketLifecycle(openEventResult.events, pesquisaResult?.events ?? []);
+      const reportResult = await fetchRelatorioTickets();
 
-      // Se não houve erro, resetar a flag
-      hadApiErrorRef.current = false;
-
-      const novosChamados: Array<{
-        codigo: number;
-        assunto: string;
-        nome_fantasia?: string;
-        data_criacao?: string;
-        status?: { text: string };
-        mesa_trabalho?: { text: string };
-        nome?: string;
-      }> = [];
-
-      // IMPORTANTE: Guardar cópia dos IDs anteriores ANTES de qualquer modificação
-      const previousIdsSnapshot = new Set(previousOpenTicketIdsRef.current);
-
-      if (openTicketsInitializedRef.current) {
-        openTickets.forEach((ticket: any) => {
-          const codigo = ticket.codigo || ticket.id;
-          if (!previousOpenTicketIdsRef.current.has(codigo)) {
-            console.log('🆕 NOVO CHAMADO DETECTADO:', codigo, ticket.assunto);
-            novosChamados.push({
-              codigo,
-              assunto: ticket.assunto || 'Sem assunto',
-              nome_fantasia: ticket.nome_fantasia || ticket.cliente || '',
-              data_criacao: ticket.data_criacao || ticket.data_abertura || new Date().toISOString(),
-              status: ticket.status || { text: 'Aberto' },
-              mesa_trabalho: ticket.mesa_trabalho || { text: 'Suporte' },
-              nome: ticket.nome || ticket.operador || 'Não atribuído',
-            });
-          }
-        });
-      } else {
-        console.log('📋 Primeira execução - inicializando IDs base');
-        openTicketsInitializedRef.current = true;
-      }
-
-      // Atualizar set de IDs abertos para a próxima comparação
-      previousOpenTicketIdsRef.current = currentOpenIds;
-
-      // 4. Alertar sobre NOVOS chamados abertos
-      console.log('📋 Total de novos chamados detectados:', novosChamados.length);
-
-      if (novosChamados.length > 0) {
-        console.log('🔔 DISPARANDO NOTIFICAÇÃO DE VOZ!');
-        playNewTicketSound();
-
-        // Registrar novos chamados no store para destaque na Gestão de Chamados
-        newTicketsStore.addTickets(novosChamados);
-
-        // Mostrar cards de alerta grandes para cada novo chamado
-        novosChamados.slice(0, 3).forEach((ticket, index) => {
-          setTimeout(() => {
-            if (!canPresentRealtimeAlert()) return;
-            notificationStore.add('novo_chamado', {
-              codigo: ticket.codigo,
-              assunto: ticket.assunto,
-              nome_fantasia: ticket.nome_fantasia,
-              data_criacao: ticket.data_criacao,
-              status: typeof ticket.status === 'object' ? ticket.status?.text : ticket.status,
-              mesa_trabalho: typeof ticket.mesa_trabalho === 'object' ? ticket.mesa_trabalho?.text : ticket.mesa_trabalho,
-              nome: ticket.nome,
-            }, 10000);
-          }, index * 800);
-        });
-
-        // Notificação por voz corrigida
-        setTimeout(() => {
-          console.log('🔊 Chamando speakAnnouncement...');
-          if (novosChamados.length === 1) {
-            const primeiro = novosChamados[0];
-            const cliente = primeiro.nome_fantasia || 'cliente desconhecido';
-            speakAnnouncement(`Atenção! Novo chamado do cliente ${cliente}, com o assunto, ${primeiro.assunto}`);
-          } else {
-            speakAnnouncement(`Atenção! Estão abertos ${novosChamados.length} chamados!`);
-          }
-        }, 300);
-      }
-
-      // 4.1 SLA Primeiro Atendimento — iniciar timers para chamados SEM operador
-      if (novosChamados.length > 0) {
-        novosChamados.forEach((ticket) => {
-          const tecnico = (ticket.nome || '').trim();
-          const semOperador = !tecnico || tecnico === 'Não atribuído';
-
-          if (semOperador && !slaTimersRef.current.has(ticket.codigo)) {
-            console.log('⏱️ SLA Timer iniciado para chamado', ticket.codigo, '- sem operador');
-
-            const cliente = ticket.nome_fantasia || 'Desconhecido';
-            const assunto = ticket.assunto || 'Sem assunto';
-            const codigo = ticket.codigo;
-
-            // Timer de 4 minutos — AVISO (prestes a estourar)
-            const avisoTimer = setTimeout(() => {
-              if (!canPresentRealtimeAlert()) return;
-
-              // Verificar se o chamado ainda não foi atribuído
-              const currentTimers = slaTimersRef.current.get(codigo);
-              if (!currentTimers) return; // já foi cancelado (operador pegou)
-
-              console.log('⚠️ SLA AVISO (4 min) — Chamado', codigo);
-
-              // Som de alerta urgente
-              if (canPlayRealtimeAudio()) try {
-                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const playTone = (startTime: number, frequency: number, duration: number) => {
-                  const osc = audioContext.createOscillator();
-                  const gain = audioContext.createGain();
-                  osc.connect(gain);
-                  gain.connect(audioContext.destination);
-                  osc.frequency.value = frequency;
-                  osc.type = 'sawtooth';
-                  gain.gain.setValueAtTime(0.25, startTime);
-                  gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-                  osc.start(startTime);
-                  osc.stop(startTime + duration);
-                };
-                const now = audioContext.currentTime;
-                playTone(now, 880, 0.2);
-                playTone(now + 0.25, 880, 0.2);
-                playTone(now + 0.5, 1100, 0.3);
-              } catch (e) { console.log('Audio não suportado'); }
-
-              // Card visual
-              notificationStore.add('sla_aviso', {
-                codigo,
-                assunto,
-                nome_fantasia: cliente,
-                minutos: 4,
-              }, 15000);
-
-              // Voz
-              setTimeout(() => {
-                speakAnnouncement(`ALERTA! ALERTA! ALERTA! O chamado do cliente ${cliente} com o assunto ${assunto} está para estourar!`);
-              }, 500);
-            }, 4 * 60 * 1000); // 4 minutos
-
-            // Timer de 5 minutos — SLA ESTOURADO
-            const estouradoTimer = setTimeout(() => {
-              if (!canPresentRealtimeAlert()) return;
-
-              const currentTimers = slaTimersRef.current.get(codigo);
-              if (!currentTimers) return;
-
-              console.log('🚨 SLA ESTOURADO (5 min) — Chamado', codigo);
-
-              // Som de alerta crítico
-              if (canPlayRealtimeAudio()) try {
-                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const playTone = (startTime: number, frequency: number, duration: number) => {
-                  const osc = audioContext.createOscillator();
-                  const gain = audioContext.createGain();
-                  osc.connect(gain);
-                  gain.connect(audioContext.destination);
-                  osc.frequency.value = frequency;
-                  osc.type = 'square';
-                  gain.gain.setValueAtTime(0.3, startTime);
-                  gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-                  osc.start(startTime);
-                  osc.stop(startTime + duration);
-                };
-                const now = audioContext.currentTime;
-                playTone(now, 600, 0.15);
-                playTone(now + 0.2, 800, 0.15);
-                playTone(now + 0.4, 600, 0.15);
-                playTone(now + 0.6, 800, 0.15);
-                playTone(now + 0.8, 1000, 0.4);
-              } catch (e) { console.log('Audio não suportado'); }
-
-              // Card visual
-              notificationStore.add('sla_estourado', {
-                codigo,
-                assunto,
-                nome_fantasia: cliente,
-              }, 20000);
-
-              // Voz
-              setTimeout(() => {
-                speakAnnouncement(`ALERTA! ALERTA! ALERTA! O chamado do cliente ${cliente} com o assunto ${assunto} já estourou! ALERTA DE SLA Primeiro Atendimento!`);
-              }, 500);
-
-              // Limpar timers (já dispararam)
-              slaTimersRef.current.delete(codigo);
-            }, 5 * 60 * 1000); // 5 minutos
-
-            slaTimersRef.current.set(codigo, { avisoTimer, estouradoTimer });
-          }
-        });
-      }
-
-      // 4.2 SLA — Também verificar chamados abertos existentes que ainda não têm operador
-      // (caso o chamado já existisse antes do dashboard abrir e ainda não tenha sido pego)
-      if (openTicketsInitializedRef.current) {
-        openTickets.forEach((ticket: any) => {
-          const codigo = ticket.codigo || ticket.id;
-          const tecnico = (ticket.tecnico || '').trim();
-          const semOperador = !tecnico || tecnico === 'Não atribuído';
-
-          // Se tem operador e existe timer ativo, cancelar (operador pegou antes)
-          if (!semOperador && slaTimersRef.current.has(codigo)) {
-            const timers = slaTimersRef.current.get(codigo)!;
-            if (timers.avisoTimer) clearTimeout(timers.avisoTimer);
-            if (timers.estouradoTimer) clearTimeout(timers.estouradoTimer);
-            slaTimersRef.current.delete(codigo);
-            console.log('✅ SLA Timer cancelado — operador pegou chamado', codigo);
-          }
-
-          // Se o chamado foi finalizado (saiu da lista), também limpar
-        });
-
-        // Limpar timers de chamados que não estão mais na lista (finalizados)
-        const currentOpenIds = new Set<number>(openTickets.map((t: any) => t.codigo || t.id));
-        slaTimersRef.current.forEach((_, codigo) => {
-          if (!currentOpenIds.has(codigo)) {
-            const timers = slaTimersRef.current.get(codigo)!;
-            if (timers.avisoTimer) clearTimeout(timers.avisoTimer);
-            if (timers.estouradoTimer) clearTimeout(timers.estouradoTimer);
-            slaTimersRef.current.delete(codigo);
-            console.log('✅ SLA Timer cancelado — chamado', codigo, 'não está mais aberto');
-          }
-        });
-      }
-
-      // 4.5 Detectar quando operador PEGA um chamado (tecnico muda de vazio para atribuído)
-      const chamadosAtribuidos: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
-
-      if (openTicketsInitializedRef.current && previousTicketTecnicosRef.current.size > 0) {
-        openTickets.forEach((ticket: any) => {
-          const codigo = ticket.codigo || ticket.id;
-          const tecnicoAtual = (ticket.tecnico || '').trim();
-          const tecnicoAnterior = (previousTicketTecnicosRef.current.get(codigo) || '').trim();
-
-          // Detectar: tinha sem técnico (ou vazio) e agora tem técnico atribuído
-          if (tecnicoAtual && (!tecnicoAnterior || tecnicoAnterior === 'Não atribuído')) {
-            console.log('🙋 OPERADOR PEGOU CHAMADO:', codigo, '→', tecnicoAtual);
-            chamadosAtribuidos.push({
-              codigo,
-              assunto: ticket.assunto || 'Sem assunto',
-              nome: tecnicoAtual,
-              nome_fantasia: ticket.nome_fantasia || ticket.cliente || 'Cliente',
-            });
-
-            // Cancelar timers SLA para este chamado (operador pegou!)
-            if (slaTimersRef.current.has(codigo)) {
-              const timers = slaTimersRef.current.get(codigo)!;
-              if (timers.avisoTimer) clearTimeout(timers.avisoTimer);
-              if (timers.estouradoTimer) clearTimeout(timers.estouradoTimer);
-              slaTimersRef.current.delete(codigo);
-              console.log('✅ SLA Timer cancelado (via atribuição) — chamado', codigo);
-            }
-          }
-        });
-      }
-
-      // Atualizar mapa de técnicos para próxima comparação
-      const newTecnicosMap = new Map<number, string>();
-      openTickets.forEach((ticket: any) => {
-        const codigo = ticket.codigo || ticket.id;
-        newTecnicosMap.set(codigo, (ticket.tecnico || '').trim());
-      });
-      previousTicketTecnicosRef.current = newTecnicosMap;
-
-      console.log('🙋 Chamados atribuídos detectados:', chamadosAtribuidos.length);
-
-      if (chamadosAtribuidos.length > 0) {
-        // Som de atribuição (melodia ascendente suave - diferente de novo chamado e finalizado)
-        const playAssignSound = () => {
-          if (!canPlayRealtimeAudio()) return;
-
-          try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const playTone = (startTime: number, frequency: number, duration: number) => {
-              const oscillator = audioContext.createOscillator();
-              const gainNode = audioContext.createGain();
-              oscillator.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-              oscillator.frequency.value = frequency;
-              oscillator.type = 'triangle';
-              gainNode.gain.setValueAtTime(0.2, startTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-              oscillator.start(startTime);
-              oscillator.stop(startTime + duration);
-            };
-            const now = audioContext.currentTime;
-            playTone(now, 440, 0.15);       // A4
-            playTone(now + 0.12, 554, 0.15); // C#5
-            playTone(now + 0.24, 659, 0.15); // E5
-            playTone(now + 0.36, 880, 0.3);  // A5 (longa)
-          } catch (e) {
-            console.log('Audio não suportado');
-          }
-        };
-
-        // Tocar som apenas se não houver novos chamados (evitar sobreposição)
-        if (novosChamados.length === 0) {
-          playAssignSound();
-        }
-
-        // Mostrar cards visuais para cada chamado atribuído
-        const delayBase = novosChamados.length > 0 ? 4000 : 0;
-        chamadosAtribuidos.slice(0, 3).forEach((ticket, index) => {
-          setTimeout(() => {
-            if (!canPresentRealtimeAlert()) return;
-            notificationStore.add('chamado_atribuido', {
-              codigo: ticket.codigo,
-              assunto: ticket.assunto,
-              nome: ticket.nome,
-              nome_fantasia: ticket.nome_fantasia,
-            }, 10000);
-          }, delayBase + index * 800);
-        });
-
-        // Anúncio por voz
-        const voiceDelay = novosChamados.length > 0 ? 5000 : 500;
-        setTimeout(() => {
-          const primeiro = chamadosAtribuidos[0];
-          const operador = primeiro.nome || 'Operador';
-          const cliente = primeiro.nome_fantasia || 'cliente';
-          if (chamadosAtribuidos.length === 1) {
-            speakAnnouncement(`Atenção! O operador ${operador} pegou o chamado do cliente ${cliente}`);
-          } else {
-            speakAnnouncement(`Atenção! ${chamadosAtribuidos.length} chamados foram atribuídos a operadores`);
-          }
-        }, voiceDelay);
-      }
-
-      // 5. Detectar tickets FINALIZADOS - Nova lógica: detectar quando chamados SAEM da lista de abertos
-      // Isso é mais confiável que buscar uma API de finalizados que pode retornar dados inconsistentes
-      const newFinalizados: Array<{ codigo: number; assunto: string; nome?: string; nome_fantasia?: string }> = [];
-
-      // Usar o snapshot dos IDs anteriores (não a ref atualizada)
-      if (openTicketsInitializedRef.current && previousIdsSnapshot.size > 0) {
-        // Encontrar IDs que estavam abertos ANTES mas não estão AGORA
-        const previousIds = Array.from(previousIdsSnapshot);
-
-        previousIds.forEach(previousId => {
-          // Se o ID anterior não está mais na lista atual de abertos
-          if (!currentOpenIds.has(previousId)) {
-            console.log('✅ CHAMADO FINALIZADO (saiu da lista de abertos):', previousId);
-
-            // Precisamos buscar as informações do ticket que foi fechado
-            // Vamos usar openTickets anterior para isso (guardamos uma ref)
-            const ticketInfo = previousOpenTicketsRef.current.find((t: any) =>
-              (t.codigo || t.id) === previousId
-            );
-
-            if (ticketInfo) {
-              newFinalizados.push({
-                codigo: previousId,
-                assunto: ticketInfo.assunto || 'Chamado finalizado',
-                nome: ticketInfo.tecnico || ticketInfo.nome || ticketInfo.operador || 'Operador',
-                nome_fantasia: ticketInfo.nome_fantasia || ticketInfo.cliente || 'Cliente'
-              });
-            } else {
-              // Se não temos info, ainda notificamos mas com dados genéricos
-              newFinalizados.push({
-                codigo: previousId,
-                assunto: 'Chamado finalizado',
-                nome: 'Operador',
-                nome_fantasia: 'Cliente'
-              });
-            }
-          }
-        });
-      }
-
-      // Guardar os chamados abertos atuais para referência futura
-      previousOpenTicketsRef.current = openTickets;
-
-      console.log('✅ Chamados finalizados detectados:', newFinalizados.length);
-
-      // Notificar sobre tickets finalizados
-      if (newFinalizados.length > 0) {
-        // Função para tocar som de sucesso
-        const playSuccessSound = () => {
-          if (!canPlayRealtimeAudio()) return;
-
-          try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const playTone = (startTime: number, frequency: number, duration: number) => {
-              const oscillator = audioContext.createOscillator();
-              const gainNode = audioContext.createGain();
-              oscillator.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-              oscillator.frequency.value = frequency;
-              oscillator.type = 'sine';
-              gainNode.gain.setValueAtTime(0.2, startTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-              oscillator.start(startTime);
-              oscillator.stop(startTime + duration);
-            };
-            const now = audioContext.currentTime;
-            playTone(now, 523, 0.2);      // C5
-            playTone(now + 0.15, 659, 0.2); // E5
-            playTone(now + 0.3, 784, 0.4);  // G5
-          } catch (e) {
-            console.log('Audio não suportado');
-          }
-        };
-
-        // Só tocar som de finalização se não tiver novos chamados nem atribuições (para não sobrepor)
-        if (novosChamados.length === 0 && chamadosAtribuidos.length === 0) {
-          playSuccessSound();
-        }
-
-        // Mostrar cards de alerta grandes para cada ticket finalizado
-        newFinalizados.slice(0, 3).forEach((ticket, index) => {
-          setTimeout(() => {
-            if (!canPresentRealtimeAlert()) return;
-            notificationStore.add('finalizado', {
-              codigo: ticket.codigo,
-              assunto: ticket.assunto,
-              nome: ticket.nome,
-              nome_fantasia: ticket.nome_fantasia,
-            }, 10000);
-          }, ((novosChamados.length > 0 || chamadosAtribuidos.length > 0) ? 4000 : 0) + index * 800);
-        });
-
-        // Falar o primeiro finalizado (com delay se tiver novos chamados ou atribuições)
-        const finalizadoVoiceDelay = (novosChamados.length > 0 || chamadosAtribuidos.length > 0) ? 6000 : 500;
-        setTimeout(() => {
-          const primeiro = newFinalizados[0];
-          const operador = primeiro.nome || 'Operador';
-          const cliente = primeiro.nome_fantasia || 'cliente';
-          // Usando speakAnnouncement para garantir consistência
-          speakAnnouncement(`Atenção! O Operador ${operador} finalizou o chamado do cliente ${cliente}`);
-        }, finalizadoVoiceDelay);
-      } else if (novosChamados.length === 0 && chamadosAtribuidos.length === 0) {
-        // Se não houve finalizações nem novos, mostrar atualização silenciosa
+      if (
+        novosChamados.length === 0 &&
+        chamadosAtribuidos.length === 0 &&
+        pesquisaResult?.notifications === 0 &&
+        reportResult?.notifications === 0
+      ) {
         toast({
           title: "Dados atualizados",
           description: `Dashboard atualizado. ${openTickets.length} chamados abertos`,
@@ -1791,17 +1580,10 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     }
   }, [ticketsResponse, isFetching]);
 
-  // Atualiza contagem inicial de tickets e inicializa mapa de status
+  // Atualiza a contagem inicial de tickets.
   useEffect(() => {
     if (tickets.length > 0 && previousTicketCount === null) {
       setPreviousTicketCount(tickets.length);
-
-      // Inicializar o mapa de status com os tickets atuais
-      const statusMap = new Map<number, string>();
-      tickets.forEach((ticket) => {
-        statusMap.set(ticket.codigo, ticket.status?.text || '');
-      });
-      previousTicketStatusesRef.current = statusMap;
     }
   }, [tickets, previousTicketCount]);
 
@@ -2326,7 +2108,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     const map = new Map<string, { atendendo: number; pausado: number; total: number }>();
 
     chamadosAtivos.forEach((ticket: any) => {
-      const nome = ticket.tecnico || "Não atribuído";
+      const nome = resolveTicketOperator(ticket) || "Não atribuído";
       if (!map.has(nome)) {
         map.set(nome, { atendendo: 0, pausado: 0, total: 0 });
       }
@@ -2402,37 +2184,27 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     if (result.error) throw result.error;
     const newTicketCount = result.data?.lista?.length || 0;
 
-    // Manter os mesmos dados auxiliares do ciclo automático em sincronia.
-    await fetchPesquisas();
-
-    // 2. Atualizar chamados ativos (Atendendo + Pausado)
     const openTickets = await fetchOpenTickets();
+    if (!openTickets) throw new Error('Falha ao consultar chamados abertos');
+
     const ativos = openTickets.filter((c: any) =>
       c.status === 'Atendendo' || c.status === 'Pausado'
     );
     setChamadosAtivos(ativos);
     setOpenTicketsCount(ativos.length);
 
-    // 3. Atualizar dados de SLA (do relatório de tickets CSV)
-    await fetchRelatorioTickets();
+    const openEventResult = processOpenTicketEvents(openTickets, false);
+    const { novosChamados, chamadosAtribuidos } = openEventResult;
+    const pesquisaResult = await fetchPesquisas(true, false);
+    enqueueGroupedTicketLifecycle(openEventResult.events, pesquisaResult?.events ?? []);
+    const reportResult = await fetchRelatorioTickets();
 
-    // Verifica se há novos tickets
-    if (previousTicketCount !== null && newTicketCount > previousTicketCount) {
-      const newTickets = newTicketCount - previousTicketCount;
-
-      // Toca som de notificação
-      if (canPlayRealtimeAudio()) {
-        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWi77eefTRAMUKfj8LZjHAY4ktfyzHksBSR3yPDdkEAKE1+06+unVRULRp/h8r5uIAUsgs/y2Ik2CBlouO3nn00RDFCn4/C2YxwGOJPY8sx5KwUkeMjw3Y9AChRfsunrp1QUC0af4PK+bSAFLITP8NqJNgcZartuu+3nklERDFCm5PCzYhwGOJTa88tzKgUjd8Xwzo5ACxReu+rqo1QVC0Wf3/K9bSAFLYTO8tqJNwcZarsuu+znklEQS0/j8LRkHAU4lNrzzHgrBSN2xO/NjkALFFuz/ejmUxQLRp/g8axrHwUthM7y2ogzBhlosuzm3JBMEQ1Qq+PztGMcBjeV2vTMeSoFI3TC8M6OQAsVX7Po6KZYFA1Gn+Dyt2wdBCx/z/HYhzcFGWe58d+hTBANUavj87JiFQc3ltr0y3kqBSJzwu/NjT8MFFmx5+igWBQLRZ/f8rltIAQrgc7x2IgzBhposezm3I9LERFT/+TztWQcBTiT2fTMdioGI3K/8M+OQAsWXrPn6KFYFQxFn9/yvG0gBSp7zvHZiDQLGGe58N2hTBENUKvi8rJjHAU3k9n0zHcqBiJywvDPjUAMF1607+ihWBYMRZ/f8rltIAUrfM/x2IcyCxhnufDdoUwQC1Gr4vCyZBwFN5PZ9Mt2KgUicrzwz40/DBhftevov1gWDEWe3vK5ayAGK3vO8diHMgsYZ7nw3aFMEAtQq+Lwsl8cBjeR2fTLdSoFInLB8c+NPwwZX7Xs6L9YFgxFnt3yuWsgBSp7zvHYhzILGGa58N2gSA8KUKrh8LJfHAU3kdf0y3UqBSJywPTPjT8NHF+z7umvVxkMQ53c8rheIAYqe83z2YgyDB1lqevfnkUTCU+q4u+yXhsENo/W88x0KQQicsBxT4w/Dyh2yO3mnlQZDkKd2vO5XB4FKnrL8tmHMQsZY6rp3p1EFApOqOLtsVwcBDaOz/PMdCkEI3K9cU+LPw8occft5p5UGQ5Ands0uVweBSp5yvLZhzELGWOn6d6dRBQJTqbh7bFcHAQ2js/zzHMpBCNxvvFOiz8PKHHI7eaeUxgOQ5zb9LhcHgQqeMry');
-        audio.volume = 0.5;
-        audio.play().catch(() => { });
-      }
-
-      toast({
-        title: `🔔 ${newTickets} novo(s) chamado(s)!`,
-        description: "Novos tickets detectados",
-        duration: 4000,
-      });
-    } else {
+    if (
+      novosChamados.length === 0 &&
+      chamadosAtribuidos.length === 0 &&
+      pesquisaResult?.notifications === 0 &&
+      reportResult?.notifications === 0
+    ) {
       toast({
         title: "Dados atualizados",
         description: `Dashboard atualizado • ${ativos.length} chamado(s) ativo(s)`,
@@ -3062,11 +2834,13 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    playNewTicketSound();
-                    speakAnnouncement("Olá a Todos! Bem vindo ao Pólo Bi Ai");
+                    announcementQueue.enqueue({
+                      id: `voice-test-${Date.now()}`,
+                      text: "Olá a todos! Bem-vindos ao Pólo BI AI.",
+                    });
                     toast({
                       title: "🔊 Teste de Áudio",
-                      description: "Se você ouviu o som e a voz, está funcionando!",
+                      description: "O teste entrou na fila e não interromperá avisos em andamento.",
                       duration: 5000,
                     });
                   }}

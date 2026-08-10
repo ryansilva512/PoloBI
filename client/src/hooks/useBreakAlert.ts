@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { announcementQueue } from '@/services/announcementQueue';
 
 // Horários de alerta (HH:MM)
 const BREAK_TIMES = [
@@ -9,9 +10,10 @@ const BREAK_TIMES = [
 const BREAK_DURATION_MS = 120_000; // 2 minutos de pausa
 const MANAGEMENT_SOUND_KEY = 'polo-bi-management-sound-enabled';
 const MANAGEMENT_SOUND_EVENT = 'polo-bi:management-sound-change';
+const LAST_BREAK_SLOT_KEY = 'polo-bi-last-break-slot';
 
 const canPlayBreakAudio = () =>
-    window.location.pathname !== '/gestao' ||
+    !window.location.pathname.startsWith('/gestao') ||
     localStorage.getItem(MANAGEMENT_SOUND_KEY) !== 'false';
 
 // Lista de músicas disponíveis (mp3 primeiro, mpeg como fallback)
@@ -40,13 +42,16 @@ const MUSIC_SONGS = [
     { name: 'Avenged Sevenfold - Hail to the King', paths: ['/music/whatsapp-audio-2026-07-21-174149.mp3', '/music/whatsapp-audio-2026-07-21-174149.mpeg'] },
 ];
 
-type BreakPhase = 'idle' | 'break' | 'return';
+type BreakPhase = 'idle' | 'queued' | 'break' | 'return';
 
 // Helpers para controlar músicas já tocadas no dia
 const getTodayKey = () => {
     const d = new Date();
     return `break-played-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
+const getBreakSlotKey = (date: Date, time: string) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}-${time}`;
 
 const getPlayedToday = (): Set<string> => {
     try {
@@ -73,162 +78,34 @@ export function useBreakAlert() {
     });
     const [secondsLeft, setSecondsLeft] = useState(0);
     const [currentSong, setCurrentSong] = useState('');
+    const [isInterruptedByAnnouncement, setIsInterruptedByAnnouncement] = useState(false);
 
-    const audioElementsRef = useRef<HTMLAudioElement[]>([]);
     const activeAudioRef = useRef<HTMLAudioElement | null>(null);
     const breakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const lastTriggeredRef = useRef<string>('');
+    const lastTriggeredRef = useRef<string>(sessionStorage.getItem(LAST_BREAK_SLOT_KEY) || '');
     const musicStartedRef = useRef(false);
-    const resumeAudioOnVisibleRef = useRef(false);
-    const resumeSpeechOnVisibleRef = useRef(false);
+    const breakIsActiveRef = useRef(false);
+    const resumeAudioWhenAllowedRef = useRef(false);
+    const activeBreakAnnouncementIdRef = useRef<string | null>(null);
+    const breakCycleRef = useRef(0);
 
     // Persistir preferência
     useEffect(() => {
         localStorage.setItem('break-alert-enabled', String(enabled));
     }, [enabled]);
 
-    // Pré-carregar todas as músicas ao montar
+    // A faixa é carregada somente quando a pausa começar, sem disputar rede
+    // com os dados do dashboard durante a abertura da tela.
     useEffect(() => {
-        const initAllAudio = async () => {
-            const loaded: HTMLAudioElement[] = [];
-
-            for (const song of MUSIC_SONGS) {
-                for (const path of song.paths) {
-                    try {
-                        const audio = new Audio(path);
-                        audio.loop = true;
-                        audio.volume = 0.5;
-                        audio.preload = 'auto';
-                        audio.dataset.songName = song.name;
-
-                        await new Promise<void>((resolve, reject) => {
-                            audio.addEventListener('canplaythrough', () => {
-                                console.log(`🎵 Música carregada: "${song.name}" (${path})`);
-                                resolve();
-                            }, { once: true });
-                            audio.addEventListener('error', () => {
-                                reject(new Error(`Formato não suportado: ${path}`));
-                            }, { once: true });
-                            setTimeout(() => resolve(), 5000);
-                            audio.load();
-                        });
-
-                        loaded.push(audio);
-                        break; // Formato funcionou, não precisa tentar fallback
-                    } catch {
-                        console.warn(`⚠️ Falha ao carregar "${song.name}" (${path}), tentando próximo formato...`);
-                    }
-                }
-            }
-
-            audioElementsRef.current = loaded;
-            console.log(`🎵 Total de músicas carregadas: ${loaded.length}/${MUSIC_SONGS.length}`);
-        };
-
-        initAllAudio();
-
         return () => {
-            audioElementsRef.current.forEach(a => {
-                a.pause();
-                a.src = '';
-            });
-            audioElementsRef.current = [];
+            const audio = activeAudioRef.current;
+            activeAudioRef.current = null;
+            if (!audio) return;
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
         };
-    }, []);
-
-    // Falar texto (com callback opcional ao terminar)
-    const speak = useCallback((text: string, onEnd?: () => void) => {
-        if (document.visibilityState !== 'visible' || !canPlayBreakAudio()) {
-            onEnd?.();
-            return;
-        }
-
-        if (!('speechSynthesis' in window)) {
-            console.warn('⚠️ SpeechSynthesis não suportado');
-            onEnd?.();
-            return;
-        }
-
-        let callbackFired = false;
-        const fireCallback = () => {
-            if (!callbackFired) {
-                callbackFired = true;
-                onEnd?.();
-            }
-        };
-
-        const doSpeak = () => {
-            if (!canPlayBreakAudio()) {
-                fireCallback();
-                return;
-            }
-
-            try {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'pt-BR';
-                utterance.rate = 1.0;
-                utterance.pitch = 1.1;
-                utterance.volume = 1.0;
-
-                const voices = window.speechSynthesis.getVoices();
-                let targetVoice = voices.find(v => v.name.includes('Daniel') && v.lang.includes('pt'));
-                if (!targetVoice) targetVoice = voices.find(v => v.name.includes('Paulo') && v.lang.includes('pt'));
-                if (!targetVoice) targetVoice = voices.find(v => v.name.includes('Google') && v.lang.includes('pt'));
-                if (!targetVoice) targetVoice = voices.find(v => v.lang.includes('pt'));
-
-                if (targetVoice) {
-                    console.log('🔊 Usando voz:', targetVoice.name);
-                    utterance.voice = targetVoice;
-                }
-
-                utterance.onend = () => {
-                    console.log('🔊 Fala terminou (onend)');
-                    fireCallback();
-                };
-                utterance.onerror = (e) => {
-                    console.error('🔊 Erro na fala:', e);
-                    fireCallback();
-                };
-
-                window.speechSynthesis.speak(utterance);
-                console.log('🔊 Fala iniciada:', text);
-
-                // SAFETY: Se o onend não disparar em 5 segundos, forçar callback
-                setTimeout(() => {
-                    if (document.visibilityState !== 'visible') return;
-
-                    if (!callbackFired) {
-                        console.warn('⚠️ Safety timeout: onend não disparou, forçando callback');
-                        fireCallback();
-                    }
-                }, 5000);
-            } catch (e) {
-                console.error('Erro na fala do break alert:', e);
-                fireCallback();
-            }
-        };
-
-        const voices = window.speechSynthesis.getVoices();
-        if (voices.length > 0) {
-            doSpeak();
-        } else {
-            const handler = () => {
-                window.speechSynthesis.removeEventListener('voiceschanged', handler);
-                doSpeak();
-            };
-            window.speechSynthesis.addEventListener('voiceschanged', handler);
-            setTimeout(() => {
-                window.speechSynthesis.removeEventListener('voiceschanged', handler);
-                if (window.speechSynthesis.getVoices().length > 0) {
-                    doSpeak();
-                } else {
-                    console.warn('⚠️ Vozes não carregaram, forçando callback');
-                    fireCallback();
-                }
-            }, 1000);
-        }
     }, []);
 
     // Iniciar música (escolhe aleatoriamente, sem repetir no mesmo dia)
@@ -237,55 +114,91 @@ export function useBreakAlert() {
 
         console.log('🎵 startMusic chamado');
         try {
-            const songs = audioElementsRef.current;
-            if (songs.length === 0) {
-                console.error('🎵 Nenhuma música carregada!');
-                return;
-            }
-
             // Filtrar músicas que ainda não tocaram hoje
             const playedToday = getPlayedToday();
-            let available = songs.filter(a => !playedToday.has(a.dataset.songName || ''));
+            let available = MUSIC_SONGS.filter((song) => !playedToday.has(song.name));
 
             // Se todas já tocaram hoje, resetar e usar todas
             if (available.length === 0) {
                 console.log('🎵 Todas as músicas já tocaram hoje, reiniciando lista!');
                 localStorage.removeItem(getTodayKey());
-                available = songs;
+                available = MUSIC_SONGS;
             }
 
             // Escolher aleatoriamente entre as disponíveis
             const randomIndex = Math.floor(Math.random() * available.length);
-            const audio = available[randomIndex];
-            const songName = audio.dataset.songName || 'Desconhecida';
+            const song = available[randomIndex];
+            const songName = song.name;
 
             console.log(`🎵 Sorteada: "${songName}" (${available.length} disponíveis hoje)`);
             markSongPlayed(songName);
             setCurrentSong(songName);
 
             // Parar qualquer música anterior
-            if (activeAudioRef.current && activeAudioRef.current !== audio) {
-                activeAudioRef.current.pause();
-                activeAudioRef.current.currentTime = 0;
+            if (activeAudioRef.current) {
+                const previousAudio = activeAudioRef.current;
+                activeAudioRef.current = null;
+                previousAudio.pause();
+                previousAudio.removeAttribute('src');
+                previousAudio.load();
             }
 
-            activeAudioRef.current = audio;
-            audio.currentTime = 0;
-            audio.volume = 0.5;
+            const activatePath = (pathIndex: number) => {
+                const path = song.paths[pathIndex];
+                if (!path || !breakIsActiveRef.current) return;
 
-            if (document.visibilityState !== 'visible') {
-                resumeAudioOnVisibleRef.current = true;
-                return;
-            }
+                const audio = new Audio();
+                let fallbackStarted = false;
+                audio.loop = true;
+                audio.volume = 0.5;
+                audio.preload = 'none';
+                audio.dataset.songName = songName;
+                audio.src = path;
+                activeAudioRef.current = audio;
 
-            const playPromise = audio.play();
-            if (playPromise) {
-                playPromise.then(() => {
-                    console.log(`🎵 Tocando: "${songName}"!`);
-                }).catch(e => {
-                    console.error('🎵 Erro ao tocar música:', e);
-                });
-            }
+                const tryFallback = () => {
+                    if (
+                        fallbackStarted
+                        || activeAudioRef.current !== audio
+                        || !breakIsActiveRef.current
+                    ) return;
+                    fallbackStarted = true;
+                    activeAudioRef.current = null;
+                    audio.pause();
+                    audio.removeAttribute('src');
+                    audio.load();
+
+                    if (song.paths[pathIndex + 1]) {
+                        console.warn(`⚠️ Formato indisponível para "${songName}", tentando fallback.`);
+                        activatePath(pathIndex + 1);
+                    } else {
+                        console.error(`🎵 Não foi possível carregar "${songName}".`);
+                    }
+                };
+
+                audio.addEventListener('error', tryFallback, { once: true });
+
+                const queueSnapshot = announcementQueue.getSnapshot();
+                const hasExternalAnnouncement =
+                    queueSnapshot.isBusy && queueSnapshot.active?.source !== 'break';
+                if (document.visibilityState !== 'visible' || hasExternalAnnouncement) {
+                    resumeAudioWhenAllowedRef.current = true;
+                    return;
+                }
+
+                audio.preload = 'auto';
+                audio.play()
+                    .then(() => console.log(`🎵 Tocando: "${songName}"!`))
+                    .catch((error) => {
+                        if ((error as { name?: string })?.name === 'NotSupportedError') {
+                            tryFallback();
+                            return;
+                        }
+                        console.error('🎵 Erro ao tocar música:', error);
+                    });
+            };
+
+            activatePath(0);
         } catch (e) {
             console.error('🎵 Exceção ao tocar música:', e);
         }
@@ -293,7 +206,7 @@ export function useBreakAlert() {
 
     // Parar música
     const stopMusic = useCallback(() => {
-        resumeAudioOnVisibleRef.current = false;
+        resumeAudioWhenAllowedRef.current = false;
 
         if (activeAudioRef.current) {
             const audio = activeAudioRef.current;
@@ -312,7 +225,48 @@ export function useBreakAlert() {
         }
     }, []);
 
-    // Iniciar countdown de 1 minuto + música
+    const resumeMusicIfAllowed = useCallback(() => {
+        const audio = activeAudioRef.current;
+        const queueSnapshot = announcementQueue.getSnapshot();
+        const hasExternalAnnouncement =
+            queueSnapshot.isBusy && queueSnapshot.active?.source !== 'break';
+
+        if (
+            !resumeAudioWhenAllowedRef.current ||
+            !breakIsActiveRef.current ||
+            !audio ||
+            document.visibilityState !== 'visible' ||
+            hasExternalAnnouncement ||
+            !canPlayBreakAudio()
+        ) {
+            return;
+        }
+
+        resumeAudioWhenAllowedRef.current = false;
+        audio.play().catch((error) => {
+            console.warn('🎵 Não foi possível retomar a música da pausa:', error);
+        });
+    }, []);
+
+    // Pausar a música da pausa enquanto um aviso externo usa o canal de áudio.
+    useEffect(() => announcementQueue.subscribe((snapshot) => {
+        const hasExternalAnnouncement =
+            snapshot.isBusy && snapshot.active?.source !== 'break';
+        const audio = activeAudioRef.current;
+        setIsInterruptedByAnnouncement(hasExternalAnnouncement);
+
+        if (hasExternalAnnouncement) {
+            if (breakIsActiveRef.current && audio && !audio.paused) {
+                resumeAudioWhenAllowedRef.current = true;
+                audio.pause();
+            }
+            return;
+        }
+
+        resumeMusicIfAllowed();
+    }), [resumeMusicIfAllowed]);
+
+    // Iniciar countdown de 2 minutos + música
     const startCountdownAndMusic = useCallback(() => {
         if (musicStartedRef.current) return; // Evitar chamar duplamente
         musicStartedRef.current = true;
@@ -333,27 +287,60 @@ export function useBreakAlert() {
             });
         }, 1000);
 
-        // Após 1 minuto: mensagem de volta
+        // Após 2 minutos: mensagem de volta
         breakTimerRef.current = setTimeout(() => {
             console.log('💪 Break Alert: Hora de voltar!');
-            setPhase('return');
+            breakIsActiveRef.current = false;
+            setPhase('queued');
             stopMusic();
 
-            speak('Bora voltar pro Flow familia!');
+            const cycle = breakCycleRef.current;
+            const announcementId = `break-return-${Date.now()}`;
+            let returnShownAt = 0;
+            activeBreakAnnouncementIdRef.current = announcementId;
 
-            // Esconder o overlay após 8 segundos
-            setTimeout(() => {
-                setPhase('idle');
-            }, 8000);
+            const hideReturnOverlay = () => {
+                if (breakCycleRef.current !== cycle) return;
+                breakTimerRef.current = setTimeout(() => {
+                    if (breakCycleRef.current === cycle) setPhase('idle');
+                }, Math.max(0, returnShownAt + 8000 - Date.now()));
+            };
+
+            const queued = announcementQueue.enqueue({
+                id: announcementId,
+                text: 'Bora voltar pro Flow familia!',
+                tone: 'break',
+                source: 'break',
+                minimumDisplayMs: 0,
+                onPhase: (announcementPhase) => {
+                    if (
+                        announcementPhase !== 'waiting'
+                        && breakCycleRef.current === cycle
+                    ) {
+                        if (!returnShownAt) returnShownAt = Date.now();
+                        setPhase('return');
+                    }
+                },
+                onComplete: () => {
+                    if (activeBreakAnnouncementIdRef.current === announcementId) {
+                        activeBreakAnnouncementIdRef.current = null;
+                    }
+                    hideReturnOverlay();
+                },
+            });
+
+            if (!queued) hideReturnOverlay();
         }, BREAK_DURATION_MS);
-    }, [startMusic, stopMusic, speak]);
+    }, [startMusic, stopMusic]);
 
     // Disparar o break
     const triggerBreak = useCallback(() => {
-        if (document.visibilityState !== 'visible') return;
+        if (breakIsActiveRef.current || activeBreakAnnouncementIdRef.current) return;
 
         console.log('🚶 Break Alert: Hora de se levantar!');
-        setPhase('break');
+        const cycle = ++breakCycleRef.current;
+        breakIsActiveRef.current = true;
+        setPhase('queued');
         setSecondsLeft(120);
         musicStartedRef.current = false;
 
@@ -362,21 +349,56 @@ export function useBreakAlert() {
         const isLastBreak = now.getHours() === 17 && now.getMinutes() === 30;
         const breakMessage = isLastBreak
             ? 'Bora, X1 familia!'
-            : 'Bora Tropa, vamo levantar, se esticar, alongar!';
+            : 'Bora Tropa, levantar, esticar e alongar!';
 
-        // 1) Falar a mensagem primeiro
-        // 2) Quando terminar de falar → começa música + countdown
-        speak(breakMessage, () => {
-            startCountdownAndMusic();
+        // A fila garante que a fala da pausa não corte nem seja cortada por chamados.
+        const announcementId = `break-start-${Date.now()}`;
+        activeBreakAnnouncementIdRef.current = announcementId;
+        const queued = announcementQueue.enqueue({
+            id: announcementId,
+            text: breakMessage,
+            tone: 'break',
+            source: 'break',
+            minimumDisplayMs: 0,
+            onPhase: (announcementPhase) => {
+                if (
+                    announcementPhase !== 'waiting'
+                    && breakCycleRef.current === cycle
+                    && breakIsActiveRef.current
+                ) {
+                    setPhase('break');
+                }
+            },
+            onComplete: (reason) => {
+                if (activeBreakAnnouncementIdRef.current === announcementId) {
+                    activeBreakAnnouncementIdRef.current = null;
+                }
+                if (
+                    reason === 'completed' &&
+                    breakCycleRef.current === cycle &&
+                    breakIsActiveRef.current
+                ) {
+                    startCountdownAndMusic();
+                }
+            },
         });
-    }, [speak, startCountdownAndMusic]);
+
+        if (!queued && breakCycleRef.current === cycle && breakIsActiveRef.current) {
+            setPhase('break');
+            startCountdownAndMusic();
+        }
+    }, [startCountdownAndMusic]);
 
     // Dismiss manual (fechar antes do tempo)
     const dismiss = useCallback(() => {
+        breakCycleRef.current += 1;
+        breakIsActiveRef.current = false;
         if (breakTimerRef.current) clearTimeout(breakTimerRef.current);
         if (countdownRef.current) clearInterval(countdownRef.current);
+        const announcementId = activeBreakAnnouncementIdRef.current;
+        activeBreakAnnouncementIdRef.current = null;
+        if (announcementId) announcementQueue.cancel(announcementId, 'dismissed');
         stopMusic();
-        window.speechSynthesis?.cancel();
         setPhase('idle');
         setSecondsLeft(0);
     }, [stopMusic]);
@@ -386,61 +408,46 @@ export function useBreakAlert() {
         setEnabled(prev => !prev);
     }, []);
 
-    // Suspende som e voz quando outra aba estiver em primeiro plano. Ao voltar,
-    // retoma apenas a reprodução que estava ativa antes da suspensão.
+    // A fila cuida da visibilidade da voz; este hook controla somente a música.
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (document.visibilityState !== 'visible') {
                 const activeAudio = activeAudioRef.current;
                 if (activeAudio && !activeAudio.paused) {
-                    resumeAudioOnVisibleRef.current = true;
+                    resumeAudioWhenAllowedRef.current = true;
                     activeAudio.pause();
                 }
-
-                if ('speechSynthesis' in window && window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-                    resumeSpeechOnVisibleRef.current = true;
-                    window.speechSynthesis.pause();
-                }
-
                 return;
             }
 
-            const activeAudio = activeAudioRef.current;
-            if (resumeAudioOnVisibleRef.current && activeAudio && canPlayBreakAudio()) {
-                resumeAudioOnVisibleRef.current = false;
-                activeAudio.play().catch((error) => {
-                    console.warn('🎵 Não foi possível retomar a música da pausa:', error);
-                });
-            } else {
-                resumeAudioOnVisibleRef.current = false;
-            }
-
-            if (resumeSpeechOnVisibleRef.current && 'speechSynthesis' in window && canPlayBreakAudio()) {
-                resumeSpeechOnVisibleRef.current = false;
-                window.speechSynthesis.resume();
-            }
+            resumeMusicIfAllowed();
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, []);
+    }, [resumeMusicIfAllowed]);
 
     // Checker principal — verifica a cada 15 segundos se é hora de alertar
     useEffect(() => {
-        if (window.location.pathname !== '/gestao') return;
+        if (!window.location.pathname.startsWith('/gestao')) return;
 
         const handleSoundPreference = (event: Event) => {
             const soundEnabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled !== false;
-            if (soundEnabled) return;
+            if (soundEnabled) {
+                if (breakIsActiveRef.current && activeAudioRef.current?.paused) {
+                    resumeAudioWhenAllowedRef.current = true;
+                    resumeMusicIfAllowed();
+                }
+                return;
+            }
 
-            resumeAudioOnVisibleRef.current = false;
+            resumeAudioWhenAllowedRef.current = false;
             activeAudioRef.current?.pause();
-            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
         };
 
         window.addEventListener(MANAGEMENT_SOUND_EVENT, handleSoundPreference);
         return () => window.removeEventListener(MANAGEMENT_SOUND_EVENT, handleSoundPreference);
-    }, []);
+    }, [resumeMusicIfAllowed]);
 
     useEffect(() => {
         if (!enabled) return;
@@ -450,9 +457,11 @@ export function useBreakAlert() {
 
             const now = new Date();
             const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            const currentSlot = getBreakSlotKey(now, currentTime);
 
-            if (BREAK_TIMES.includes(currentTime) && lastTriggeredRef.current !== currentTime && phase === 'idle') {
-                lastTriggeredRef.current = currentTime;
+            if (BREAK_TIMES.includes(currentTime) && lastTriggeredRef.current !== currentSlot && phase === 'idle') {
+                lastTriggeredRef.current = currentSlot;
+                sessionStorage.setItem(LAST_BREAK_SLOT_KEY, currentSlot);
                 triggerBreak();
             }
         };
@@ -491,8 +500,18 @@ export function useBreakAlert() {
     // Cleanup timers
     useEffect(() => {
         return () => {
+            breakCycleRef.current += 1;
+            breakIsActiveRef.current = false;
             if (breakTimerRef.current) clearTimeout(breakTimerRef.current);
             if (countdownRef.current) clearInterval(countdownRef.current);
+            const announcementId = activeBreakAnnouncementIdRef.current;
+            activeBreakAnnouncementIdRef.current = null;
+            if (
+                announcementId
+                && announcementQueue.getSnapshot().active?.id !== announcementId
+            ) {
+                announcementQueue.cancel(announcementId, 'unmounted');
+            }
         };
     }, []);
 
@@ -501,6 +520,7 @@ export function useBreakAlert() {
         enabled,
         secondsLeft,
         currentSong,
+        isInterruptedByAnnouncement,
         progressWidth: `${((120 - secondsLeft) / 120) * 100}%`,
         toggle,
         dismiss,

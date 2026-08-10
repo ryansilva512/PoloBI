@@ -26,6 +26,7 @@ import {
 } from "@/context/ManagementLayoutContext";
 import { useToast } from "@/hooks/use-toast";
 import Home from "@/pages/home";
+import { announcementQueue } from "@/services/announcementQueue";
 
 const SOUND_PREFERENCE_KEY = "polo-bi-management-sound-enabled";
 const SOUND_PREFERENCE_EVENT = "polo-bi:management-sound-change";
@@ -116,13 +117,10 @@ function GestaoContent() {
   const publishSoundPreference = useCallback((enabled: boolean) => {
     setSoundEnabled(enabled);
     window.localStorage.setItem(SOUND_PREFERENCE_KEY, String(enabled));
+    announcementQueue.setMuted(!enabled);
     window.dispatchEvent(
       new CustomEvent(SOUND_PREFERENCE_EVENT, { detail: { enabled } }),
     );
-
-    if (!enabled && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
   }, []);
 
   const unlockAudio = useCallback(async () => {

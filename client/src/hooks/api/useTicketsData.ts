@@ -9,19 +9,11 @@ export const useTicketsData = (
   return useQuery({
     queryKey: ["tickets", filters],
     queryFn: async () => {
-      console.log("useTicketsData - Fetching with filters:", filters);
-      const data = await (loadAllPages
+      return loadAllPages
         ? apiClient.getTicketsAllPages(filters || {})
-        : apiClient.getTickets(filters || {}));
-      console.log("useTicketsData - Data received:", {
-        hasMeta: !!data?.meta,
-        hasLista: !!data?.lista,
-        listaLength: data?.lista?.length,
-        firstItem: data?.lista?.[0],
-        fullData: data
-      });
-      return data;
+        : apiClient.getTickets(filters || {});
     },
+    placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes (previously cacheTime)
   });

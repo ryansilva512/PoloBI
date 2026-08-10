@@ -894,11 +894,23 @@ export function BreakAlertOverlay({
     dockVariant = 'floating',
     dockTarget = null,
 }: BreakAlertOverlayProps = {}) {
-    const { phase, enabled, secondsLeft, currentSong, progressWidth, toggle, dismiss, triggerBreak } = useBreakAlert();
+    const {
+        phase,
+        enabled,
+        secondsLeft,
+        currentSong,
+        isInterruptedByAnnouncement,
+        progressWidth,
+        toggle,
+        dismiss,
+        triggerBreak,
+    } = useBreakAlert();
     const dialogRef = useRef<HTMLElement>(null);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const previousFocusRef = useRef<HTMLElement | null>(null);
-    const dialogOpen = phase !== 'idle';
+    const dialogOpen =
+        (phase === 'break' || phase === 'return')
+        && !isInterruptedByAnnouncement;
 
     useEffect(() => {
         if (!dialogOpen) return;
