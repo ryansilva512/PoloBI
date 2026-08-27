@@ -357,10 +357,10 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       const kpiW = (pageWidth - margin * 2 - 40) / 5;
       const kpis = [
         { label: 'Total Tickets', value: String(tickets.length), c: [59, 130, 246] },
-        { label: 'Resp. em Dia', value: `${tickets.length - metricasSLAMilvus.respostaEstourada}`, c: [34, 197, 94] },
-        { label: 'Atend. em Dia', value: `${tickets.length - metricasSLAMilvus.solucaoEstourada}`, c: [34, 197, 94] },
-        { label: 'Resp. Estourada', value: `${metricasSLAMilvus.respostaEstourada}`, c: [239, 68, 68] },
-        { label: 'Atend. Expirado', value: `${metricasSLAMilvus.solucaoEstourada}`, c: [239, 68, 68] },
+        { label: 'Resp. em Dia', value: `${tickets.length - metricasSLAExibicao.respostaEstourada}`, c: [34, 197, 94] },
+        { label: 'Atend. em Dia', value: `${tickets.length - metricasSLAExibicao.solucaoEstourada}`, c: [34, 197, 94] },
+        { label: 'Resp. Estourada', value: `${metricasSLAExibicao.respostaEstourada}`, c: [239, 68, 68] },
+        { label: 'Atend. Expirado', value: `${metricasSLAExibicao.solucaoEstourada}`, c: [239, 68, 68] },
       ];
       kpis.forEach((kpi, i) => {
         const x = margin + 10 + i * (kpiW + 8);
@@ -1737,103 +1737,22 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     [filters.data_inicial, filters.data_final]
   );
 
-  // Calcular chamados finalizados por dia para o calendário heatmap (usando CSV)
+  // A API principal já respeita o período selecionado. Ela é a fonte mais
+  // confiável para os indicadores operacionais porque o relatório personalizado
+  // do Milvus pode vir limitado ou com um recorte histórico desatualizado.
   const chamadosPorDia = useMemo(() => {
-    if (!ticketsDetalhados.length) return new Map<string, number>();
-
-    // Preparar datas do filtro
-    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
-    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
-
     const map = new Map<string, number>();
-    let ticketsContados = 0;
-    let ticketsIgnorados = 0;
 
-    ticketsDetalhados.forEach((t) => {
-      // Ignorar tickets excluídos
-      if (t.ticket_excluido === 'Sim') return;
+    ticketsFiltrados.forEach((ticket) => {
+      const dataSolucao = parseDateSafely(ticket.data_solucao);
+      if (!dataSolucao) return;
 
-      // Usar data_solucao (Data da solução) do CSV
-      const dataSolucaoCSV = (t as any).data_solucao;
-      if (!dataSolucaoCSV || dataSolucaoCSV === 'Não possui' || dataSolucaoCSV === '') {
-        ticketsIgnorados++;
-        return;
-      }
-
-      // Parsear data_solucao (formato dd/MM/yyyy)
-      let dataTicket: Date | null = null;
-      try {
-        const parts = dataSolucaoCSV.split('/');
-        if (parts.length === 3) {
-          const [day, month, year] = parts.map(Number);
-          dataTicket = new Date(year, month - 1, day);
-          if (!isValid(dataTicket)) dataTicket = null;
-        }
-      } catch {
-        dataTicket = null;
-      }
-
-      if (!dataTicket) {
-        ticketsIgnorados++;
-        return;
-      }
-
-      // Aplicar filtro de data
-      if (dataInicialFiltro && dataTicket < startOfDay(dataInicialFiltro)) return;
-      if (dataFinalFiltro && dataTicket > endOfDay(dataFinalFiltro)) return;
-
-      ticketsContados++;
-      // Formatar como YYYY-MM-DD para usar como chave
-      const dateKey = format(dataTicket, 'yyyy-MM-dd');
+      const dateKey = format(dataSolucao, 'yyyy-MM-dd');
       map.set(dateKey, (map.get(dateKey) || 0) + 1);
     });
 
-    // DEBUG: Mostrar no console para investigar
-    const totalNoCalendario = Array.from(map.values()).reduce((a, b) => a + b, 0);
-
-    // Identificar tickets finalizados em finais de semana
-    const ticketsFimDeSemana: { ticket: string; data: string; diaSemana: string }[] = [];
-    ticketsDetalhados.forEach((t) => {
-      if (t.ticket_excluido === 'Sim') return;
-      const dataSolucaoCSV = (t as any).data_solucao;
-      if (!dataSolucaoCSV || dataSolucaoCSV === 'Não possui' || dataSolucaoCSV === '') return;
-
-      const parts = dataSolucaoCSV.split('/');
-      if (parts.length !== 3) return;
-      const [day, month, year] = parts.map(Number);
-      const dataTicket = new Date(year, month - 1, day);
-      if (!isValid(dataTicket)) return;
-
-      // Aplicar filtro de data
-      if (dataInicialFiltro && dataTicket < startOfDay(dataInicialFiltro)) return;
-      if (dataFinalFiltro && dataTicket > endOfDay(dataFinalFiltro)) return;
-
-      const diaSemana = dataTicket.getDay(); // 0 = Domingo, 6 = Sábado
-      if (diaSemana === 0 || diaSemana === 6) {
-        const diasNome = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-        ticketsFimDeSemana.push({
-          ticket: t.ticket,
-          data: dataSolucaoCSV,
-          diaSemana: diasNome[diaSemana]
-        });
-      }
-    });
-
-    console.log('📊 DEBUG Calendário (CSV):', {
-      ticketsDetalhadosTotal: ticketsDetalhados.length,
-      ticketsContados,
-      ticketsIgnorados,
-      totalNoCalendario,
-      diasComTickets: map.size,
-      detalhePorDia: Object.fromEntries(map)
-    });
-
-    if (ticketsFimDeSemana.length > 0) {
-      console.log('⚠️ TICKETS FINALIZADOS EM FINAIS DE SEMANA:', ticketsFimDeSemana);
-    }
-
     return map;
-  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+  }, [ticketsFiltrados]);
 
   // Gerar dados do calendário para o mês atual baseado no período selecionado
   const calendarioData = useMemo(() => {
@@ -1887,44 +1806,17 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
   // Atividade por operador por dia da semana (Dom, Seg, Ter, Qua, Qui, Sex, Sáb)
   const atividadePorOperadorDiaSemana = useMemo(() => {
-    if (!ticketsDetalhados.length) return [];
-
-    // Preparar datas do filtro
-    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
-    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+    if (!ticketsFiltrados.length) return [];
 
     // Map: operador -> [dom, seg, ter, qua, qui, sex, sab]
     const map = new Map<string, number[]>();
 
-    ticketsDetalhados.forEach((t) => {
-      // Ignorar tickets excluídos
-      if (t.ticket_excluido === 'Sim') return;
+    ticketsFiltrados.forEach((ticket) => {
+      const dataSolucao = parseDateSafely(ticket.data_solucao);
+      if (!dataSolucao) return;
 
-      // Usar data_solucao (Data da solução) do CSV
-      const dataSolucaoCSV = (t as any).data_solucao;
-      if (!dataSolucaoCSV || dataSolucaoCSV === 'Não possui' || dataSolucaoCSV === '') return;
-
-      // Parsear data_solucao (formato dd/MM/yyyy)
-      let dataTicket: Date | null = null;
-      try {
-        const parts = dataSolucaoCSV.split('/');
-        if (parts.length === 3) {
-          const [day, month, year] = parts.map(Number);
-          dataTicket = new Date(year, month - 1, day);
-          if (!isValid(dataTicket)) dataTicket = null;
-        }
-      } catch {
-        return;
-      }
-
-      if (!dataTicket) return;
-
-      // Aplicar filtro de data
-      if (dataInicialFiltro && dataTicket < startOfDay(dataInicialFiltro)) return;
-      if (dataFinalFiltro && dataTicket > endOfDay(dataFinalFiltro)) return;
-
-      const operador = t.operador || 'Não atribuído';
-      const diaSemana = dataTicket.getDay(); // 0 = Domingo, 6 = Sábado
+      const operador = resolveTicketOperator(ticket) || 'Não atribuído';
+      const diaSemana = dataSolucao.getDay(); // 0 = Domingo, 6 = Sábado
 
       if (!map.has(operador)) {
         map.set(operador, [0, 0, 0, 0, 0, 0, 0]);
@@ -1941,7 +1833,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         total: dias.reduce((a, b) => a + b, 0),
       }))
       .sort((a, b) => b.total - a.total);
-  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+  }, [ticketsFiltrados]);
 
   const tempoMetrics = useMemo(() => {
     if (!ticketsFiltrados.length) {
@@ -2024,6 +1916,41 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       }))
       .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
   }, [ticketsFiltrados]);
+
+  // Mantém os campos mais precisos do relatório personalizado quando eles
+  // existem no período e recorre à API principal quando o CSV vem vazio,
+  // limitado ou desatualizado.
+  const temposExibicao = {
+    tempoMedioAbertura: temposDoRelatorio.totalResposta > 0
+      ? temposDoRelatorio.tempoMedioAbertura
+      : tempoMetrics.tempoMedioResposta,
+    tempoMedioSolucao: temposDoRelatorio.totalSolucao > 0
+      ? temposDoRelatorio.tempoMedioSolucao
+      : tempoMetrics.tempoMedioAtendimento,
+  };
+
+  const tempoRespostaExibicao = tempoRespostaPorOperadorCSV.length > 0
+    ? tempoRespostaPorOperadorCSV
+    : tempoRespostaPorOperador;
+
+  const tempoAtendimentoExibicao = tempoAtendimentoPorOperadorCSV.length > 0
+    ? tempoAtendimentoPorOperadorCSV
+    : operadoresPorAtendimento;
+
+  const metricasSLAExibicao = {
+    respostaEstourada: metricasSLAMilvus.totalComSLAResposta > 0
+      ? metricasSLAMilvus.respostaEstourada
+      : tempoMetrics.respostaEstourada,
+    solucaoEstourada: metricasSLAMilvus.totalComSLASolucao > 0
+      ? metricasSLAMilvus.solucaoEstourada
+      : tempoMetrics.atendimentoExpirado,
+    totalComSLAResposta: metricasSLAMilvus.totalComSLAResposta > 0
+      ? metricasSLAMilvus.totalComSLAResposta
+      : tempoMetrics.totalRespMedida,
+    totalComSLASolucao: metricasSLAMilvus.totalComSLASolucao > 0
+      ? metricasSLAMilvus.totalComSLASolucao
+      : tempoMetrics.totalAtendMedida,
+  };
 
   const rankingOperadores = useMemo(() => {
     if (!ticketsFiltrados.length) return [];
@@ -2433,9 +2360,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     },
     {
       titulo: "Qtd Resposta em Dia",
-      valor: (aggregatedData.totalTickets - metricasSLAMilvus.respostaEstourada).toLocaleString("pt-BR"),
+      valor: (aggregatedData.totalTickets - metricasSLAExibicao.respostaEstourada).toLocaleString("pt-BR"),
       detalhe: aggregatedData.totalTickets
-        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.respostaEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
+        ? `${(((aggregatedData.totalTickets - metricasSLAExibicao.respostaEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
         : "0%",
       icon: <Timer className="h-6 w-6 text-sky-400 icon-glow" />,
       className: "glass glow-blue",
@@ -2443,9 +2370,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     },
     {
       titulo: "Qtd Atendimento em Dia",
-      valor: (aggregatedData.totalTickets - metricasSLAMilvus.solucaoEstourada).toLocaleString("pt-BR"),
+      valor: (aggregatedData.totalTickets - metricasSLAExibicao.solucaoEstourada).toLocaleString("pt-BR"),
       detalhe: aggregatedData.totalTickets
-        ? `${(((aggregatedData.totalTickets - metricasSLAMilvus.solucaoEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
+        ? `${(((aggregatedData.totalTickets - metricasSLAExibicao.solucaoEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
         : "0%",
       icon: <Clock4 className="h-6 w-6 text-emerald-400 icon-glow" />,
       className: "glass glow-emerald",
@@ -2453,9 +2380,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     },
     {
       titulo: "Qtd Resposta Estourada",
-      valor: metricasSLAMilvus.respostaEstourada.toLocaleString("pt-BR"),
-      detalhe: metricasSLAMilvus.totalComSLAResposta
-        ? `${((metricasSLAMilvus.respostaEstourada / metricasSLAMilvus.totalComSLAResposta) * 100).toFixed(1)}%`
+      valor: metricasSLAExibicao.respostaEstourada.toLocaleString("pt-BR"),
+      detalhe: metricasSLAExibicao.totalComSLAResposta
+        ? `${((metricasSLAExibicao.respostaEstourada / metricasSLAExibicao.totalComSLAResposta) * 100).toFixed(1)}%`
         : "0%",
       icon: <AlertTriangle className="h-6 w-6 text-red-400 icon-glow" />,
       className: "glass glow-red",
@@ -2464,9 +2391,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     },
     {
       titulo: "Qtd Atendimento Expirado",
-      valor: metricasSLAMilvus.solucaoEstourada.toLocaleString("pt-BR"),
-      detalhe: metricasSLAMilvus.totalComSLASolucao
-        ? `${((metricasSLAMilvus.solucaoEstourada / metricasSLAMilvus.totalComSLASolucao) * 100).toFixed(1)}%`
+      valor: metricasSLAExibicao.solucaoEstourada.toLocaleString("pt-BR"),
+      detalhe: metricasSLAExibicao.totalComSLASolucao
+        ? `${((metricasSLAExibicao.solucaoEstourada / metricasSLAExibicao.totalComSLASolucao) * 100).toFixed(1)}%`
         : "0%",
       icon: <AlertTriangle className="h-6 w-6 text-red-400 icon-glow" />,
       className: "glass glow-red",
@@ -2501,13 +2428,13 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         rankingPesquisas={rankingPesquisas}
         openTicketsCount={openTicketsCount}
         chamadosAtivos={chamadosAtivos}
-        tempoAbertura={formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
-        tempoSolucao={formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
+        tempoAbertura={formatMinutosCompleto(temposExibicao.tempoMedioAbertura)}
+        tempoSolucao={formatMinutosCompleto(temposExibicao.tempoMedioSolucao)}
         atividade={atividadePorOperadorDiaSemana}
         calendario={calendarioData}
         kpis={kpiCards}
-        tempoResposta={tempoRespostaPorOperadorCSV}
-        tempoAtendimento={tempoAtendimentoPorOperadorCSV}
+        tempoResposta={tempoRespostaExibicao}
+        tempoAtendimento={tempoAtendimentoExibicao}
         isRefreshing={isRefreshing}
         nextRefreshSeconds={Math.ceil((nextRefreshIn ?? MANAGEMENT_REFRESH_INTERVAL) / 1000)}
         lastUpdatedLabel={lastUpdatedAt ? format(lastUpdatedAt, "HH:mm:ss") : "aguardando"}
@@ -2665,14 +2592,14 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
                 <div className="flex flex-col items-center rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2">
                   <span className="text-[10px] font-semibold text-blue-400 tracking-wide">META 00:05:00</span>
                   <span className="text-xl font-mono font-bold text-blue-300">
-                    {formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}
+                    {formatMinutosCompleto(temposExibicao.tempoMedioAbertura)}
                   </span>
                   <span className="text-[9px] text-slate-400">Tempo médio abertura</span>
                 </div>
                 <div className="flex flex-col items-center px-4 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10">
                   <span className="text-[10px] font-semibold text-emerald-400 tracking-wide">META 04:00:00</span>
                   <span className="text-xl font-mono font-bold text-emerald-300">
-                    {formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}
+                    {formatMinutosCompleto(temposExibicao.tempoMedioSolucao)}
                   </span>
                   <span className="text-[9px] text-slate-400">Tempo médio solução</span>
                 </div>
@@ -2932,15 +2859,15 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
               <div className="w-px h-10 bg-slate-600" />
               <div className="flex flex-col">
                 <span className="text-[10px] uppercase text-slate-400 tracking-wider">Atual</span>
-                <span className="text-lg font-mono font-bold text-white">{formatMinutosCompleto(temposDoRelatorio.tempoMedioAbertura)}</span>
+                <span className="text-lg font-mono font-bold text-white">{formatMinutosCompleto(temposExibicao.tempoMedioAbertura)}</span>
               </div>
             </div>
             <div className="space-y-3">
-              {tempoRespostaPorOperadorCSV.length === 0 && (
+              {tempoRespostaExibicao.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
               {(() => {
-                const listaResposta = tempoRespostaPorOperadorCSV.slice(0, 8);
+                const listaResposta = tempoRespostaExibicao.slice(0, 8);
                 const totalItens = listaResposta.length;
                 return listaResposta.map((op, idx) => {
                   const maxValor = listaResposta[listaResposta.length - 1]?.tempoMedioMinutos || 1;
@@ -3060,15 +2987,15 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
               <div className="w-px h-10 bg-slate-600" />
               <div className="flex flex-col">
                 <span className="text-[10px] uppercase text-slate-400 tracking-wider">Atual</span>
-                <span className="text-lg font-mono font-bold text-white">{formatMinutosCompleto(temposDoRelatorio.tempoMedioSolucao)}</span>
+                <span className="text-lg font-mono font-bold text-white">{formatMinutosCompleto(temposExibicao.tempoMedioSolucao)}</span>
               </div>
             </div>
             <div className="space-y-3">
-              {tempoAtendimentoPorOperadorCSV.length === 0 && (
+              {tempoAtendimentoExibicao.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sem dados para operadores.</p>
               )}
               {(() => {
-                const listaAtendimento = tempoAtendimentoPorOperadorCSV.slice(0, 8);
+                const listaAtendimento = tempoAtendimentoExibicao.slice(0, 8);
                 const totalItens = listaAtendimento.length;
                 return listaAtendimento.map((op, idx) => {
                   const maxValor = listaAtendimento[listaAtendimento.length - 1]?.tempoMedioAtendimentoMinutos || 1;
