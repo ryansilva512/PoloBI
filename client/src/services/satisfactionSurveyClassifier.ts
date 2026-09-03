@@ -35,6 +35,47 @@ export const parseSatisfactionScore = (value: unknown): number | null => {
   return Number.isFinite(score) && score >= 1 && score <= 5 ? score : null;
 };
 
+export const parseSatisfactionEvaluationDate = (value: unknown): Date | null => {
+  const normalized = normalizeValue(value);
+  if (!normalized) return null;
+
+  const brDateMatch = normalized.match(
+    /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/,
+  );
+
+  if (brDateMatch) {
+    const [, day, month, year, hour = "0", minute = "0", second = "0"] = brDateMatch;
+    const parsed = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+    );
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const parsed = new Date(normalized.replace(" ", "T"));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+export const isSatisfactionEvaluationWithinRange = (
+  survey: Pick<SatisfactionSurveyRecord, "data_avaliacao">,
+  rangeStart?: Date | null,
+  rangeEnd?: Date | null,
+): boolean => {
+  if (!rangeStart && !rangeEnd) return true;
+
+  const evaluatedAt = parseSatisfactionEvaluationDate(survey.data_avaliacao);
+  if (!evaluatedAt) return false;
+
+  if (rangeStart && evaluatedAt < rangeStart) return false;
+  if (rangeEnd && evaluatedAt > rangeEnd) return false;
+  return true;
+};
+
 export const getAnsweredSatisfactionKey = (
   survey: SatisfactionSurveyRecord,
 ): string | null => {

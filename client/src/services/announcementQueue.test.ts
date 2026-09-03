@@ -22,7 +22,11 @@ const waitUntil = async (condition: () => boolean, timeoutMs = 500) => {
   }
 };
 
-function installSpeechEnvironment() {
+function installSpeechEnvironment(
+  voices: Array<{ name: string; lang: string }> = [
+    { name: "Microsoft Maria Desktop", lang: "pt-BR" },
+  ],
+) {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   const originalUtterance = Object.getOwnPropertyDescriptor(globalThis, "SpeechSynthesisUtterance");
@@ -34,7 +38,7 @@ function installSpeechEnvironment() {
   let visibilityListener: (() => void) | null = null;
 
   const synth = {
-    getVoices: () => [{ lang: "pt-BR" }],
+    getVoices: () => voices,
     speak: (utterance: FakeUtterance) => spoken.push(utterance),
     cancel: () => { cancelCalls += 1; },
     pause: () => { pauseCalls += 1; },
@@ -81,6 +85,29 @@ function installSpeechEnvironment() {
     },
   };
 }
+
+test("prioriza uma voz feminina brasileira mesmo quando a masculina vem primeiro", async (t) => {
+  const antonio = { name: "Microsoft Antonio Online", lang: "pt-BR" };
+  const maria = { name: "Microsoft Maria Desktop", lang: "pt-BR" };
+  const speech = installSpeechEnvironment([
+    antonio,
+    { name: "Microsoft Zira Desktop", lang: "en-US" },
+    maria,
+  ]);
+  t.after(() => speech.restore());
+  const queue = new AnnouncementQueue();
+
+  queue.enqueue({
+    id: "female-voice",
+    text: "Teste com voz feminina",
+    minimumDisplayMs: 0,
+    gapAfterMs: 0,
+  });
+  await waitUntil(() => speech.spoken.length === 1);
+
+  assert.equal(speech.spoken[0].voice, maria);
+  speech.spoken[0].onend?.();
+});
 
 test("processa anúncios em FIFO sem interromper o item ativo", async () => {
   const queue = new AnnouncementQueue();

@@ -2,6 +2,11 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { format, parseISO, isValid } from "date-fns";
 import { storage } from "./storage";
+import {
+  mergeSatisfactionRecords,
+  parseSatisfactionCsv,
+  type SatisfactionRecord,
+} from "./satisfactionData";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -608,78 +613,204 @@ export async function registerRoutes(
     }
   });
   // ========== PESQUISA DE SATISFAÇÃO ENDPOINT ==========
-  app.post("/api/proxy/pesquisas", async (req, res) => {
-    try {
-      const API_KEY = process.env.MILVUS_API_KEY;
-      if (!API_KEY) {
-        return res.status(500).json({
-          success: false,
-          message: "MILVUS_API_KEY not configured"
-        });
-      }
+  const satisfactionCacheTtl = 30_000;
+  let evaluatedTicketsCache: { expiresAt: number; tickets: unknown[] } | null = null;
+  const createdTicketsCache = new Map<string, { expiresAt: number; tickets: unknown[] }>();
 
+  const normalizeSatisfactionDate = (
+    value: unknown,
+    fallback: Date,
+    boundary: "start" | "end",
+  ) => {
+    if (typeof value === "string" && value.trim()) {
+      const parsed = parseISO(value.trim().replace(" ", "T"));
+      if (isValid(parsed)) {
+        return format(parsed, "yyyy-MM-dd HH:mm:ss");
+      }
+    }
+
+    const date = new Date(fallback);
+    if (boundary === "start") date.setHours(0, 0, 0, 0);
+    else date.setHours(23, 59, 59, 999);
+    return format(date, "yyyy-MM-dd HH:mm:ss");
+  };
+
+  const fetchMilvusTicketPage = async (
+    apiKey: string,
+    filters: Record<string, unknown>,
+    page: number,
+  ) => {
+    const pageSize = 200;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
+    try {
       const response = await fetch(
-        "https://apiintegracao.milvus.com.br/api/relatorio-personalizado/exportar",
+        `https://apiintegracao.milvus.com.br/api/chamado/listagem?pagina=${page}&total_registros=${pageSize}`,
         {
           method: "POST",
           headers: {
-            "Authorization": API_KEY,
-            "Content-Type": "application/json"
+            "Authorization": apiKey,
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            nome: "Pesquisas",
-            tipo: "csv"
-          })
-        }
+            filtro_body: filters,
+            is_descending: true,
+            order_by: "codigo",
+            total_registros: pageSize,
+            pagina: page,
+          }),
+          signal: controller.signal,
+        },
       );
 
       if (!response.ok) {
-        return res.status(response.status).json({
-          success: false,
-          message: `API Milvus error: ${response.status}`
-        });
+        throw new Error(`API de chamados retornou ${response.status}`);
       }
 
-      const csvText = await response.text();
+      return await response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
 
-      // Parse CSV
-      const lines = csvText.split('\n').filter(line => line.trim());
-      if (lines.length === 0) {
-        return res.json({ lista: [] });
-      }
+  const fetchAllMilvusTickets = async (
+    apiKey: string,
+    filters: Record<string, unknown>,
+  ): Promise<unknown[]> => {
+    const firstPage = await fetchMilvusTicketPage(apiKey, filters, 1);
+    const firstTickets = Array.isArray(firstPage?.lista) ? firstPage.lista : [];
+    const lastPage = Math.max(
+      1,
+      Number(firstPage?.meta?.paginate?.last_page ?? firstPage?.meta?.last_page ?? 1),
+    );
+    const tickets = [...firstTickets];
 
-      // Parse header
-      const header = lines[0].split(';').map(h => h.replace(/"/g, '').trim());
-
-      // Parse data rows
-      const data = lines.slice(1).map(line => {
-        const values = line.split(';').map(v => v.replace(/"/g, '').trim());
-        const row: Record<string, string> = {};
-        header.forEach((h, i) => {
-          row[h] = values[i] || '';
-        });
-        return {
-          data_criacao: row['DATA DE CRIAÇÃO DO TICKET'] || '',
-          contato: row['CONTATO DO TICKET'] || '',
-          descricao_avaliacao: row['DESCRIÇÃO DA AVALIAÇÃO'] || '',
-          nota: row['NOTA DA AVALIAÇÃO'] || '',
-          data_avaliacao: row['DATA DA AVALIAÇÃO'] || '',
-          ticket: row['TICKET'] || '',
-          razao_social: row['RAZÃO SOCIAL DO CLIENTE'] || '',
-          categoria: row['NOME DA CATEGORIA'] || '',
-          operador: row['NOME DO OPERADOR'] || '',
-          ticket_excluido: row['TICKET EXCLUÍDO'] || 'Não'
-        };
+    // Limita a concorrência para não sobrecarregar a integração da Milvus.
+    for (let first = 2; first <= lastPage; first += 4) {
+      const pages = Array.from(
+        { length: Math.min(4, lastPage - first + 1) },
+        (_, index) => first + index,
+      );
+      const responses = await Promise.all(
+        pages.map((page) => fetchMilvusTicketPage(apiKey, filters, page)),
+      );
+      responses.forEach((page) => {
+        if (Array.isArray(page?.lista)) tickets.push(...page.lista);
       });
+    }
 
-      res.json({ lista: data });
-    } catch (error: any) {
-      console.error("Erro ao buscar pesquisas:", error);
-      res.status(500).json({
+    return tickets;
+  };
+
+  const fetchFallbackSatisfactionCsv = async (apiKey: string): Promise<SatisfactionRecord[]> => {
+    const response = await fetch(
+      "https://apiintegracao.milvus.com.br/api/relatorio-personalizado/exportar",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ nome: "Pesquisas", tipo: "csv" }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`API de relatório retornou ${response.status}`);
+    }
+
+    return parseSatisfactionCsv(await response.text());
+  };
+
+  app.post("/api/proxy/pesquisas", async (req, res) => {
+    const API_KEY = process.env.MILVUS_API_KEY;
+    if (!API_KEY) {
+      return res.status(500).json({
         success: false,
-        message: "Erro ao buscar pesquisas",
-        error: error.message
+        message: "MILVUS_API_KEY not configured",
       });
+    }
+
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const rangeStart = normalizeSatisfactionDate(
+      req.body?.data_inicial,
+      firstDayOfMonth,
+      "start",
+    );
+    const rangeEnd = normalizeSatisfactionDate(req.body?.data_final, now, "end");
+    const rangeKey = `${rangeStart}|${rangeEnd}`;
+
+    try {
+      const cachedCreated = createdTicketsCache.get(rangeKey);
+      const createdPromise = cachedCreated && cachedCreated.expiresAt > Date.now()
+        ? Promise.resolve(cachedCreated.tickets)
+        : fetchAllMilvusTickets(API_KEY, {
+          data_hora_criacao_inicial: rangeStart,
+          data_hora_criacao_final: rangeEnd,
+        }).then((tickets) => {
+          createdTicketsCache.set(rangeKey, {
+            expiresAt: Date.now() + satisfactionCacheTtl,
+            tickets,
+          });
+          return tickets;
+        });
+
+      const evaluatedPromise = evaluatedTicketsCache && evaluatedTicketsCache.expiresAt > Date.now()
+        ? Promise.resolve(evaluatedTicketsCache.tickets)
+        : fetchAllMilvusTickets(API_KEY, { possui_avaliacao: true }).then((tickets) => {
+          evaluatedTicketsCache = {
+            expiresAt: Date.now() + satisfactionCacheTtl,
+            tickets,
+          };
+          return tickets;
+        });
+
+      const [createdTickets, evaluatedTickets] = await Promise.all([
+        createdPromise,
+        evaluatedPromise,
+      ]);
+      const data = mergeSatisfactionRecords(createdTickets, evaluatedTickets);
+
+      // Evita crescimento indefinido ao alternar muitos intervalos na interface.
+      if (createdTicketsCache.size > 20) {
+        const currentTime = Date.now();
+        createdTicketsCache.forEach((entry, key) => {
+          if (entry.expiresAt <= currentTime || key !== rangeKey) {
+            createdTicketsCache.delete(key);
+          }
+        });
+      }
+
+      return res.json({
+        lista: data,
+        meta: {
+          source: "chamado-listagem",
+          created: createdTickets.length,
+          evaluated: evaluatedTickets.length,
+        },
+      });
+    } catch (error: any) {
+      console.error("Erro ao buscar pesquisas pela listagem paginada:", error);
+
+      try {
+        const fallback = await fetchFallbackSatisfactionCsv(API_KEY);
+        return res.json({
+          lista: fallback,
+          meta: {
+            source: "relatorio-personalizado-fallback",
+            truncated: fallback.length >= 10_000,
+          },
+        });
+      } catch (fallbackError: any) {
+        console.error("Erro no fallback do relatório de pesquisas:", fallbackError);
+        return res.status(502).json({
+          success: false,
+          message: "Erro ao buscar pesquisas",
+          error: fallbackError.message,
+        });
+      }
     }
   });
   // ========== END PESQUISA DE SATISFAÇÃO ==========

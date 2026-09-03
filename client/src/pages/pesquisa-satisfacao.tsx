@@ -32,6 +32,10 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import {
+    isSatisfactionEvaluationWithinRange,
+    parseSatisfactionEvaluationDate,
+} from "@/services/satisfactionSurveyClassifier";
+import {
     Star,
     Send,
     MessageSquare,
@@ -82,13 +86,17 @@ const parseDateSafely = (value?: string | null) => {
 };
 
 // Hook para buscar dados de pesquisa
-function usePesquisasData() {
+function usePesquisasData(dataInicial?: string, dataFinal?: string) {
     return useQuery({
-        queryKey: ["pesquisas"],
+        queryKey: ["pesquisas", dataInicial, dataFinal],
         queryFn: async () => {
             const response = await fetch("/api/proxy/pesquisas", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" }
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    data_inicial: dataInicial,
+                    data_final: dataFinal,
+                }),
             });
             if (!response.ok) throw new Error("Erro ao buscar pesquisas");
             return response.json();
@@ -125,7 +133,10 @@ function StarRating({ rating }: { rating: number }) {
 
 export default function PesquisaSatisfacao() {
     const { filters, updateFilters } = useFilters();
-    const { data: pesquisasResponse, isLoading, isError, error, refetch, isFetching } = usePesquisasData();
+    const { data: pesquisasResponse, isLoading, isError, error, refetch, isFetching } = usePesquisasData(
+        filters.data_inicial,
+        filters.data_final,
+    );
     const [analistaFiltro, setAnalistaFiltro] = useState<string | undefined>(undefined);
     const [pageSize, setPageSize] = useState(10);
     const [currentPage, setCurrentPage] = useState(1);
@@ -142,7 +153,8 @@ export default function PesquisaSatisfacao() {
         [filters.data_final]
     );
 
-    // Pesquisas filtradas por período
+    // Mantém os KPIs de envio e taxa de resposta vinculados à coorte de
+    // pesquisas criada no período selecionado.
     const pesquisasFiltradas = useMemo(() => {
         if (!pesquisas.length) return [];
 
@@ -158,6 +170,23 @@ export default function PesquisaSatisfacao() {
         });
     }, [pesquisas, dataInicialDate, dataFinalDate, analistaFiltro]);
 
+    // Tabela e rankings representam avaliações recebidas no período, portanto
+    // usam a data da resposta do cliente, não a criação do chamado.
+    const avaliacoesFiltradas = useMemo(() => {
+        if (!pesquisas.length) return [];
+
+        return pesquisas.filter((p) => {
+            if (p.ticket_excluido === 'Sim') return false;
+            if (!isSatisfactionEvaluationWithinRange(
+                p,
+                dataInicialDate ? startOfDay(dataInicialDate) : null,
+                dataFinalDate ? endOfDay(dataFinalDate) : null,
+            )) return false;
+            if (analistaFiltro && p.operador !== analistaFiltro) return false;
+            return true;
+        });
+    }, [pesquisas, dataInicialDate, dataFinalDate, analistaFiltro]);
+
     // Métricas
     const metricas = useMemo(() => {
         const enviadas = pesquisasFiltradas.length;
@@ -165,7 +194,8 @@ export default function PesquisaSatisfacao() {
         const comNota = pesquisasFiltradas.filter(p => p.nota && !isNaN(parseFloat(p.nota.replace(',', '.')))).length;
         const respondidas = comNota;
 
-        const notas = pesquisasFiltradas
+        // A média acompanha as avaliações efetivamente recebidas no período.
+        const notas = avaliacoesFiltradas
             .map(p => parseFloat(p.nota?.replace(',', '.') || '0'))
             .filter(n => !isNaN(n) && n > 0);
         const mediaNotas = notas.length > 0 ? notas.reduce((a, b) => a + b, 0) / notas.length : 0;
@@ -178,11 +208,11 @@ export default function PesquisaSatisfacao() {
             mediaNotas,
             percentualRespondidas
         };
-    }, [pesquisasFiltradas]);
+    }, [pesquisasFiltradas, avaliacoesFiltradas]);
 
     // Pesquisas filtradas para a tabela (apenas respondidas)
     const pesquisasTabela = useMemo(() => {
-        return pesquisasFiltradas.filter(p => {
+        return avaliacoesFiltradas.filter(p => {
             const temNota = p.nota && !isNaN(parseFloat(p.nota.replace(',', '.')));
             const temDescricao = p.descricao_avaliacao &&
                 p.descricao_avaliacao.trim() !== '' &&
@@ -190,12 +220,12 @@ export default function PesquisaSatisfacao() {
                 p.descricao_avaliacao !== 'Sem resposta';
             return temNota || temDescricao;
         });
-    }, [pesquisasFiltradas]);
+    }, [avaliacoesFiltradas]);
 
     // Ranking por quantidade de pesquisas avaliadas (com nota)
     const rankingQuantidade = useMemo(() => {
         const map = new Map<string, number>();
-        pesquisasFiltradas.forEach(p => {
+        avaliacoesFiltradas.forEach(p => {
             if (p.operador && p.nota && !isNaN(parseFloat(p.nota.replace(',', '.')))) {
                 map.set(p.operador, (map.get(p.operador) || 0) + 1);
             }
@@ -203,12 +233,12 @@ export default function PesquisaSatisfacao() {
         return Array.from(map.entries())
             .map(([operador, quantidade]) => ({ operador, quantidade }))
             .sort((a, b) => b.quantidade - a.quantidade);
-    }, [pesquisasFiltradas]);
+    }, [avaliacoesFiltradas]);
 
     // Ranking por média de notas
     const rankingMedia = useMemo(() => {
         const map = new Map<string, { soma: number; count: number }>();
-        pesquisasFiltradas.forEach(p => {
+        avaliacoesFiltradas.forEach(p => {
             if (p.operador && p.nota) {
                 const nota = parseFloat(p.nota.replace(',', '.'));
                 if (!isNaN(nota) && nota > 0) {
@@ -221,7 +251,7 @@ export default function PesquisaSatisfacao() {
             .map(([operador, { soma, count }]) => ({ operador, media: soma / count, count }))
             .filter(r => r.count >= 1)
             .sort((a, b) => b.media - a.media);
-    }, [pesquisasFiltradas]);
+    }, [avaliacoesFiltradas]);
 
     // Lista de analistas para filtro
     const analistas = useMemo(() => {
@@ -618,7 +648,7 @@ export default function PesquisaSatisfacao() {
                                 ) : (
                                     pesquisasTabela.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((p, idx) => {
                                         const nota = parseFloat(p.nota?.replace(',', '.') || '0');
-                                        const dataCriacao = parseDateSafely(p.data_criacao);
+                                        const dataAvaliacao = parseSatisfactionEvaluationDate(p.data_avaliacao);
                                         return (
                                             <TableRow
                                                 key={`${p.ticket}-${idx}`}
@@ -629,7 +659,7 @@ export default function PesquisaSatisfacao() {
                                                 )}
                                             >
                                                 <TableCell className="text-xs text-slate-400 whitespace-nowrap font-mono">
-                                                    {dataCriacao ? format(dataCriacao, "dd/MM/yyyy HH:mm") : "-"}
+                                                    {dataAvaliacao ? format(dataAvaliacao, "dd/MM/yyyy HH:mm") : "-"}
                                                 </TableCell>
                                                 <TableCell className="font-mono font-bold text-blue-400">{p.ticket}</TableCell>
                                                 <TableCell className="truncate max-w-[120px] text-slate-300">{p.contato || "-"}</TableCell>

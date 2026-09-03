@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getAnsweredSatisfactionKey,
+  isSatisfactionEvaluationWithinRange,
   parseSatisfactionScore,
 } from "./satisfactionSurveyClassifier";
 
@@ -53,4 +54,42 @@ test("a transição de pendente para respondida cria a chave apenas após a nota
 
   assert.equal(pending, null);
   assert.equal(answered, "77||4|2026-08-10 10:45:00");
+});
+
+test("filtra a pesquisa pela data da avaliação e não pela criação do chamado", () => {
+  const augustStart = new Date(2026, 7, 1, 0, 0, 0);
+  const augustEnd = new Date(2026, 7, 31, 23, 59, 59);
+
+  assert.equal(
+    isSatisfactionEvaluationWithinRange(
+      { data_avaliacao: "03/08/2026 11:00" },
+      augustStart,
+      augustEnd,
+    ),
+    true,
+  );
+  assert.equal(
+    isSatisfactionEvaluationWithinRange(
+      { data_avaliacao: "31/07/2026 23:59" },
+      augustStart,
+      augustEnd,
+    ),
+    false,
+  );
+  assert.equal(
+    isSatisfactionEvaluationWithinRange(
+      { data_avaliacao: "Não possui" },
+      augustStart,
+      augustEnd,
+    ),
+    false,
+  );
+  assert.equal(
+    isSatisfactionEvaluationWithinRange(
+      { data_avaliacao: "03/08/2026 10:59" },
+      new Date(2026, 7, 3, 11, 0, 0),
+      augustEnd,
+    ),
+    false,
+  );
 });

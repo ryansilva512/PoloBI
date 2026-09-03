@@ -69,6 +69,7 @@ import {
 } from "@/services/ticketReportClassifier";
 import {
   getAnsweredSatisfactionKey,
+  isSatisfactionEvaluationWithinRange,
   parseSatisfactionScore,
 } from "@/services/satisfactionSurveyClassifier";
 import { ManagementDashboard } from "@/components/management-dashboard";
@@ -615,6 +616,10 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       const response = await fetch('/api/proxy/pesquisas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data_inicial: filters.data_inicial,
+          data_final: filters.data_final,
+        }),
       });
       if (!response.ok) return null;
       const data = await response.json();
@@ -686,12 +691,14 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         // Ignorar tickets excluídos
         if (isTicketDeleted(p.ticket_excluido)) return;
 
-        // Aplicar filtro de data se existir
+        // O período do ranking representa quando o cliente respondeu à avaliação,
+        // independentemente da data em que o chamado foi criado.
         if (dataInicialDate && dataFinalDate) {
-          const dataPesquisa = parseDataPesquisa(p.data_criacao);
-          if (!dataPesquisa) return; // Data inválida = fora do range
-
-          if (dataPesquisa < startOfDay(dataInicialDate) || dataPesquisa > endOfDay(dataFinalDate)) {
+          if (!isSatisfactionEvaluationWithinRange(
+            p,
+            startOfDay(dataInicialDate),
+            endOfDay(dataFinalDate),
+          )) {
             return;
           }
         }

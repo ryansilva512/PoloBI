@@ -52,6 +52,43 @@ type SpeechResult = "ended" | "error" | "muted" | "unsupported";
 const DEFAULT_GAP_MS = 450;
 const VOICES_TIMEOUT_MS = 500;
 
+const FEMALE_PORTUGUESE_VOICE_HINTS = [
+  "maria",
+  "francisca",
+  "luciana",
+  "camila",
+  "fernanda",
+  "helena",
+  "joana",
+  "female",
+  "feminina",
+];
+
+const normalizeVoiceName = (value: string) => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase();
+
+export const selectPreferredPortugueseVoice = (
+  voices: SpeechSynthesisVoice[],
+): SpeechSynthesisVoice | undefined => {
+  const portugueseBrazil = voices.filter(
+    (voice) => voice.lang.toLowerCase() === "pt-br",
+  );
+  const portuguese = portugueseBrazil.length > 0
+    ? portugueseBrazil
+    : voices.filter((voice) => voice.lang.toLowerCase().startsWith("pt"));
+
+  for (const hint of FEMALE_PORTUGUESE_VOICE_HINTS) {
+    const femaleVoice = portuguese.find((voice) =>
+      normalizeVoiceName(voice.name).includes(hint)
+    );
+    if (femaleVoice) return femaleVoice;
+  }
+
+  return portuguese[0];
+};
+
 const tonePatterns: Record<Exclude<AnnouncementTone, Function>, Array<[number, number]>> = {
   "ticket-open": [[659, 95], [880, 140]],
   "ticket-assigned": [[523, 85], [659, 85], [784, 135]],
@@ -258,8 +295,7 @@ export class AnnouncementQueue {
       utterance.pitch = item.pitch ?? 1;
       utterance.volume = item.volume ?? 1;
 
-      const preferredVoice = voices.find((voice) => voice.lang.toLowerCase() === "pt-br")
-        ?? voices.find((voice) => voice.lang.toLowerCase().startsWith("pt"));
+      const preferredVoice = selectPreferredPortugueseVoice(voices);
       if (preferredVoice) utterance.voice = preferredVoice;
 
       let settled = false;
