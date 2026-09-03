@@ -76,6 +76,14 @@ export const isSatisfactionEvaluationWithinRange = (
   return true;
 };
 
+export const isSatisfactionEvaluationNewSince = (
+  survey: Pick<SatisfactionSurveyRecord, "data_avaliacao">,
+  since: Date,
+): boolean => {
+  const evaluatedAt = parseSatisfactionEvaluationDate(survey.data_avaliacao);
+  return Boolean(evaluatedAt && evaluatedAt >= since);
+};
+
 export const getAnsweredSatisfactionKey = (
   survey: SatisfactionSurveyRecord,
 ): string | null => {

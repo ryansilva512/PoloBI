@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getAnsweredSatisfactionKey,
+  isSatisfactionEvaluationNewSince,
   isSatisfactionEvaluationWithinRange,
   parseSatisfactionScore,
 } from "./satisfactionSurveyClassifier";
@@ -89,6 +90,32 @@ test("filtra a pesquisa pela data da avaliação e não pela criação do chamad
       { data_avaliacao: "03/08/2026 10:59" },
       new Date(2026, 7, 3, 11, 0, 0),
       augustEnd,
+    ),
+    false,
+  );
+});
+
+test("não classifica avaliações históricas como novas após uma sincronização", () => {
+  const lastSync = new Date(2026, 8, 3, 15, 0, 0);
+
+  assert.equal(
+    isSatisfactionEvaluationNewSince(
+      { data_avaliacao: "03/09/2026 14:59" },
+      lastSync,
+    ),
+    false,
+  );
+  assert.equal(
+    isSatisfactionEvaluationNewSince(
+      { data_avaliacao: "2026-09-03 15:01:00" },
+      lastSync,
+    ),
+    true,
+  );
+  assert.equal(
+    isSatisfactionEvaluationNewSince(
+      { data_avaliacao: "Não possui" },
+      lastSync,
     ),
     false,
   );

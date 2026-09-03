@@ -69,6 +69,7 @@ import {
 } from "@/services/ticketReportClassifier";
 import {
   getAnsweredSatisfactionKey,
+  isSatisfactionEvaluationNewSince,
   isSatisfactionEvaluationWithinRange,
   parseSatisfactionScore,
 } from "@/services/satisfactionSurveyClassifier";
@@ -267,6 +268,8 @@ const enqueueSatisfactionNotification = (pesquisa: SatisfactionAlertData) => {
 const MANAGEMENT_REFRESH_INTERVAL = 30_000;
 const MANAGEMENT_SOUND_KEY = "polo-bi-management-sound-enabled";
 const MANAGEMENT_SOUND_EVENT = "polo-bi:management-sound-change";
+const SATISFACTION_NOTIFICATION_GRACE_MS = 2 * 60_000;
+const MAX_SATISFACTION_NOTIFICATIONS_PER_REFRESH = 20;
 
 export default function Home({ mode = "dashboard" }: HomeProps) {
   const isManagement = mode === "management";
@@ -593,6 +596,8 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   // Rastrear pesquisas já vistas para detectar novas (usando ticket como chave única)
   const previousPesquisaTicketsRef = useRef<Set<string>>(new Set());
   const pesquisasInitializedRef = useRef<boolean>(false);
+  const lastPesquisaNotificationSyncRef = useRef<Date | null>(null);
+  const pesquisaSourceRef = useRef<string | null>(null);
   const pesquisaNotificationSequenceRef = useRef(0);
   const lastAppliedPesquisaNotificationRef = useRef(0);
   const pesquisaAuxiliarySequenceRef = useRef(0);
@@ -604,6 +609,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     detectNotifications = true,
     enqueueNotifications = true,
   ) => {
+    const requestStartedAt = new Date();
     const sequenceRef = detectNotifications
       ? pesquisaNotificationSequenceRef
       : pesquisaAuxiliarySequenceRef;
@@ -627,6 +633,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       if (requestSequence < lastAppliedRef.current) return null;
       lastAppliedRef.current = requestSequence;
       const pesquisas = data.lista;
+      const currentSource = typeof data?.meta?.source === "string"
+        ? data.meta.source
+        : "unknown";
 
       // Detectar NOVAS pesquisas de satisfação respondidas
       // Chave única: ticket + nota + operador (identifica avaliação específica)
@@ -641,35 +650,69 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       });
 
       const wasInitialized = pesquisasInitializedRef.current;
+      const sourceChanged = pesquisaSourceRef.current !== null
+        && pesquisaSourceRef.current !== currentSource;
+      const lastNotificationSync = lastPesquisaNotificationSyncRef.current;
 
-      if (wasInitialized && detectNotifications) {
+      if (wasInitialized && detectNotifications && !sourceChanged && lastNotificationSync) {
         // Encontrar pesquisas que não existiam no polling anterior
+        const notificationThreshold = new Date(
+          lastNotificationSync.getTime() - SATISFACTION_NOTIFICATION_GRACE_MS,
+        );
+        const candidates: SatisfactionAlertData[] = [];
+
         pesquisas.forEach((p: any) => {
           if (isTicketDeleted(p.ticket_excluido)) return;
           const chave = getAnsweredSatisfactionKey(p);
           if (!chave) return;
 
-          if (!previousPesquisaTicketsRef.current.has(chave)) {
-            console.log('⭐ NOVA PESQUISA DE SATISFAÇÃO:', p.ticket, '- Operador:', p.operador, '- Nota:', p.nota, '- Data:', p.data_avaliacao);
-            novasPesquisas.push({
-              ticket: p.ticket || '',
-              razao_social: p.razao_social || '',
-              operador: p.operador || '',
-              nota: p.nota || '',
-              contato: p.contato || '',
-              descricao_avaliacao: p.descricao_avaliacao || '',
-              data_avaliacao: p.data_avaliacao || '',
-            });
-          }
+          if (previousPesquisaTicketsRef.current.has(chave)) return;
+          if (!isSatisfactionEvaluationNewSince(p, notificationThreshold)) return;
+
+          candidates.push({
+            ticket: p.ticket || '',
+            razao_social: p.razao_social || '',
+            operador: p.operador || '',
+            nota: p.nota || '',
+            contato: p.contato || '',
+            descricao_avaliacao: p.descricao_avaliacao || '',
+            data_avaliacao: p.data_avaliacao || '',
+          });
         });
+
+        // Centenas de itens indicam carga histórica, troca de fonte ou reparo
+        // de dados. Nesses casos atualizamos a base sem lotar a fila de voz.
+        if (candidates.length <= MAX_SATISFACTION_NOTIFICATIONS_PER_REFRESH) {
+          candidates.forEach((pesquisa) => {
+            console.log('⭐ NOVA PESQUISA DE SATISFAÇÃO:', pesquisa.ticket, '- Operador:', pesquisa.operador, '- Nota:', pesquisa.nota, '- Data:', pesquisa.data_avaliacao);
+            novasPesquisas.push(pesquisa);
+          });
+        } else {
+          console.warn(
+            'Pesquisas: lote histórico ignorado para notificações:',
+            candidates.length,
+          );
+        }
       } else if (!wasInitialized) {
         console.log('📋 Pesquisas - Primeira execução, inicializando base com', currentPesquisaKeys.size, 'pesquisas');
         pesquisasInitializedRef.current = true;
       }
 
+      if (sourceChanged) {
+        console.info(
+          'Pesquisas: fonte alterada; histórico usado somente como nova base.',
+          pesquisaSourceRef.current,
+          '→',
+          currentSource,
+        );
+        previousPesquisaTicketsRef.current = new Set(currentPesquisaKeys);
+      }
+
       // Consultas apenas para filtros não consomem eventos antes do polling coordenado.
       if (!wasInitialized || detectNotifications) {
         currentPesquisaKeys.forEach((key) => previousPesquisaTicketsRef.current.add(key));
+        lastPesquisaNotificationSyncRef.current = requestStartedAt;
+        pesquisaSourceRef.current = currentSource;
       }
 
       // A store coordena card, tom e fala em FIFO, sem cortar outros avisos.

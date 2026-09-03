@@ -167,6 +167,22 @@ const formatTime = (timestamp: number) => new Intl.DateTimeFormat("pt-BR", {
   minute: "2-digit",
 }).format(timestamp);
 
+const hasCustomerComment = (value?: string) => {
+  const normalized = (value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return Boolean(normalized) && ![
+    "nao possui",
+    "sem resposta",
+    "null",
+    "undefined",
+    "-",
+  ].includes(normalized);
+};
+
 function Detail({ icon: Icon, label, children }: {
   icon: LucideIcon;
   label: string;
@@ -309,7 +325,7 @@ function NotificationContent({ notification, style }: { notification: AppNotific
             <Detail icon={Hash} label="Chamado">#{data.ticket}</Detail>
             <Detail icon={Building2} label="Cliente">{data.razao_social || "Não informado"}</Detail>
           </div>
-          {data.descricao_avaliacao?.trim() && (
+          {hasCustomerComment(data.descricao_avaliacao) && (
             <div className="flex gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.04] p-4">
               <MessageSquareQuote className="mt-0.5 h-5 w-5 shrink-0 text-violet-300" aria-hidden="true" />
               <div className="min-w-0">
