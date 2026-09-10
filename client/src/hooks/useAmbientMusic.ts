@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const AMBIENT_PREFERENCE_KEY = "polo-bi-management-ambient-enabled";
 const MANAGEMENT_BREAK_AUDIO_EVENT = "polo-bi:break-audio-change";
 const AMBIENT_TRACK = "/music/ambient-winter-wind.mp3";
-const AMBIENT_VOLUME = 0.08;
+const AMBIENT_VOLUME = 0.16;
 
 const getInitialPreference = () => {
   if (typeof window === "undefined") return true;
