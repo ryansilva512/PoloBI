@@ -584,16 +584,14 @@ function GestaoContent() {
             aria-pressed={soundEnabled && ambientMusic.enabled}
             title={
               ambientMusic.enabled
-                ? ambientMusic.isDucked
-                  ? "Música ambiente reduzida durante o aviso"
-                  : ambientMusic.isPlaying
-                    ? "Desativar música ambiente • volume suave"
-                    : "Clique para liberar a música ambiente"
+                ? ambientMusic.isPlaying
+                  ? "Desativar música ambiente • volume suave"
+                  : "Clique para liberar a música ambiente"
                 : "Ativar música ambiente suave"
             }
           >
             <Music2 className="h-4 w-4" aria-hidden="true" />
-            {ambientMusic.isPlaying && !ambientMusic.isDucked && (
+            {ambientMusic.isPlaying && (
               <span
                 className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse"
                 aria-hidden="true"

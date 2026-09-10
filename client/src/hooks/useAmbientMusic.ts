@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { announcementQueue } from "@/services/announcementQueue";
-
 const AMBIENT_PREFERENCE_KEY = "polo-bi-management-ambient-enabled";
 const MANAGEMENT_BREAK_AUDIO_EVENT = "polo-bi:break-audio-change";
 const AMBIENT_TRACK = "/music/ambient-winter-wind.mp3";
-const AMBIENT_VOLUME = 0.06;
-const DUCKED_VOLUME = 0.012;
+const AMBIENT_VOLUME = 0.08;
 
 const getInitialPreference = () => {
   if (typeof window === "undefined") return true;
@@ -24,39 +21,13 @@ export function useAmbientMusic({
 }: UseAmbientMusicOptions) {
   const [enabled, setEnabledState] = useState(getInitialPreference);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isDucked, setIsDucked] = useState(false);
   const [breakAudioActive, setBreakAudioActive] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const fadeFrameRef = useRef<number | null>(null);
 
   const setEnabled = useCallback((nextEnabled: boolean) => {
     setEnabledState(nextEnabled);
     window.localStorage.setItem(AMBIENT_PREFERENCE_KEY, String(nextEnabled));
   }, []);
-
-  const fadeTo = useCallback((target: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (fadeFrameRef.current !== null) cancelAnimationFrame(fadeFrameRef.current);
-
-    const step = () => {
-      const difference = target - audio.volume;
-      if (Math.abs(difference) < 0.002) {
-        audio.volume = target;
-        fadeFrameRef.current = null;
-        return;
-      }
-
-      audio.volume = Math.max(0, Math.min(1, audio.volume + difference * 0.12));
-      fadeFrameRef.current = requestAnimationFrame(step);
-    };
-
-    fadeFrameRef.current = requestAnimationFrame(step);
-  }, []);
-
-  useEffect(() => announcementQueue.subscribe((snapshot) => {
-    setIsDucked(snapshot.isBusy);
-  }), []);
 
   useEffect(() => {
     let resumeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -81,11 +52,6 @@ export function useAmbientMusic({
   }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (audio) fadeTo(isDucked ? DUCKED_VOLUME : AMBIENT_VOLUME);
-  }, [fadeTo, isDucked]);
-
-  useEffect(() => {
     const canPlay =
       enabled &&
       soundEnabled &&
@@ -104,14 +70,14 @@ export function useAmbientMusic({
       audio = new Audio(AMBIENT_TRACK);
       audio.loop = true;
       audio.preload = "auto";
-      audio.volume = isDucked ? DUCKED_VOLUME : AMBIENT_VOLUME;
+      audio.volume = AMBIENT_VOLUME;
       audio.addEventListener("play", () => setIsPlaying(true));
       audio.addEventListener("pause", () => setIsPlaying(false));
       audioRef.current = audio;
     }
 
     void audio.play().catch(() => setIsPlaying(false));
-  }, [audioUnlocked, breakAudioActive, enabled, isDucked, soundEnabled]);
+  }, [audioUnlocked, breakAudioActive, enabled, soundEnabled]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -133,7 +99,6 @@ export function useAmbientMusic({
   }, [audioUnlocked, breakAudioActive, enabled, soundEnabled]);
 
   useEffect(() => () => {
-    if (fadeFrameRef.current !== null) cancelAnimationFrame(fadeFrameRef.current);
     const audio = audioRef.current;
     audioRef.current = null;
     if (!audio) return;
@@ -145,7 +110,6 @@ export function useAmbientMusic({
   return {
     enabled,
     isPlaying,
-    isDucked,
     setEnabled,
   };
 }
