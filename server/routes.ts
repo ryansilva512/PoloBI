@@ -534,22 +534,26 @@ export async function registerRoutes(
 
     // Extrair parâmetros do request
     const { status = "ChamadosAbertos", pagina = 1, total_registros = 50 } = req.body;
+    const safePage = Math.max(1, Number(pagina) || 1);
+    const safePageSize = Math.min(200, Math.max(1, Number(total_registros) || 50));
 
     // Mapear valores de status para os valores aceitos pela API Milvus
-    // A API usa 'ChamadosAbertos' para listar chamados em atendimento
-    // e 'ChamadosFechados' para chamados finalizados
+    // A API usa "ChamadosAbertos" para os tickets em atendimento e
+    // "Finalizado" para os encerrados.
     const statusMap: Record<string, string> = {
       'EmAtendimento': 'ChamadosAbertos',
       'Atendendo': 'ChamadosAbertos',
       'ChamadosAbertos': 'ChamadosAbertos',
-      'Finalizado': 'ChamadosFechados',
-      'ChamadosFechados': 'ChamadosFechados',
+      'Finalizado': 'Finalizado',
+      // Compatibilidade com chamadas antigas do front-end. A API da Milvus
+      // documenta e aceita "Finalizado", não "ChamadosFechados".
+      'ChamadosFechados': 'Finalizado',
     };
     const statusFinal = statusMap[status] || status;
 
     console.log("=== CHAMADOS Proxy Request ===");
     console.log("Status recebido:", status, "→ enviado:", statusFinal);
-    console.log("Pagina:", pagina);
+    console.log("Pagina:", safePage);
 
     const filtro_body: any = {
       status: statusFinal
@@ -561,19 +565,27 @@ export async function registerRoutes(
     }
 
     // Construir body conforme documentação Milvus
+    const orderBy = statusFinal === 'Finalizado' ? 'data_solucao' : 'data_criacao';
     const milvusBody = {
       filtro_body,
       is_descending: true,
-      order_by: "data_criacao",
-      total_registros: total_registros,
-      pagina: pagina
+      order_by: orderBy,
+      total_registros: safePageSize,
+      pagina: safePage
     };
 
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch(MILVUS_URL, {
+      // A Milvus ignora paginação quando ela existe apenas no corpo.
+      // Mantemos os campos no corpo por compatibilidade e os enviamos também
+      // na query string, conforme o comportamento atual da integração.
+      const milvusUrl = new URL(MILVUS_URL);
+      milvusUrl.searchParams.set("pagina", String(safePage));
+      milvusUrl.searchParams.set("total_registros", String(safePageSize));
+
+      const response = await fetch(milvusUrl, {
         method: "POST",
         headers: {
           "Authorization": API_KEY,

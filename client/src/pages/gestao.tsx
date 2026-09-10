@@ -7,6 +7,7 @@ import {
   Check,
   Expand,
   Minimize2,
+  Music2,
   Radio,
   RotateCcw,
   SlidersHorizontal,
@@ -25,6 +26,7 @@ import {
   useManagementLayout,
 } from "@/context/ManagementLayoutContext";
 import { useToast } from "@/hooks/use-toast";
+import { useAmbientMusic } from "@/hooks/useAmbientMusic";
 import Home from "@/pages/home";
 import { announcementQueue } from "@/services/announcementQueue";
 
@@ -113,6 +115,8 @@ function GestaoContent() {
   const mountedRef = useRef(true);
   const customizationButtonRef = useRef<HTMLButtonElement>(null);
   const wasEditingRef = useRef(isEditing);
+
+  const ambientMusic = useAmbientMusic({ soundEnabled, audioUnlocked });
 
   const publishSoundPreference = useCallback((enabled: boolean) => {
     setSoundEnabled(enabled);
@@ -254,6 +258,30 @@ function GestaoContent() {
 
     publishSoundPreference(false);
   }, [audioUnlocked, publishSoundPreference, soundEnabled, unlockAudio]);
+
+  const handleAmbientControl = useCallback(async () => {
+    if (!soundEnabled) publishSoundPreference(true);
+
+    if (!ambientMusic.enabled) {
+      ambientMusic.setEnabled(true);
+      await unlockAudio();
+      return;
+    }
+
+    if (!audioUnlocked) {
+      await unlockAudio();
+      return;
+    }
+
+    ambientMusic.setEnabled(false);
+  }, [
+    ambientMusic.enabled,
+    ambientMusic.setEnabled,
+    audioUnlocked,
+    publishSoundPreference,
+    soundEnabled,
+    unlockAudio,
+  ]);
 
   const handleExit = useCallback(() => {
     try {
@@ -535,6 +563,41 @@ function GestaoContent() {
               <Volume2 aria-hidden="true" />
             ) : (
               <VolumeX aria-hidden="true" />
+            )}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={
+              soundEnabled && ambientMusic.enabled
+                ? "relative h-9 w-9 border-white/[0.07] bg-white/[0.025] text-violet-300 hover:bg-violet-400/10 hover:text-violet-200"
+                : "h-9 w-9 border-white/[0.07] bg-white/[0.025] text-slate-500 hover:text-slate-300"
+            }
+            onClick={() => void handleAmbientControl()}
+            aria-label={
+              ambientMusic.enabled
+                ? "Desativar música ambiente"
+                : "Ativar música ambiente"
+            }
+            aria-pressed={soundEnabled && ambientMusic.enabled}
+            title={
+              ambientMusic.enabled
+                ? ambientMusic.isDucked
+                  ? "Música ambiente reduzida durante o aviso"
+                  : ambientMusic.isPlaying
+                    ? "Desativar música ambiente • volume suave"
+                    : "Clique para liberar a música ambiente"
+                : "Ativar música ambiente suave"
+            }
+          >
+            <Music2 className="h-4 w-4" aria-hidden="true" />
+            {ambientMusic.isPlaying && !ambientMusic.isDucked && (
+              <span
+                className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse"
+                aria-hidden="true"
+              />
             )}
           </Button>
 

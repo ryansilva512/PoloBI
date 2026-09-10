@@ -478,6 +478,10 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   const openTicketsRequestSequenceRef = useRef(0);
   const lastAppliedOpenTicketsRequestRef = useRef(0);
   const initialOpenTicketsRequestedRef = useRef(false);
+  const finalizedTicketsInitializedRef = useRef(false);
+  const knownFinalizedTicketIdsRef = useRef<Set<string>>(new Set());
+  const finalizedTicketsRequestSequenceRef = useRef(0);
+  const lastAppliedFinalizedTicketsRequestRef = useRef(0);
 
   const cacheOpenTicketContexts = (tickets: any[]) => {
     tickets.forEach((ticket) => {
@@ -586,6 +590,80 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       return data.lista;
     } catch (e) {
       console.error('Erro ao buscar chamados abertos:', e);
+      return null;
+    }
+  };
+
+  // A exportação CSV "Ticket" é truncada pela Milvus em 10.000 linhas
+  // antigas. Esta consulta acompanha os encerramentos recentes pela listagem
+  // oficial, ordenada por data de solução.
+  const fetchFinalizedTickets = async () => {
+    const requestSequence = ++finalizedTicketsRequestSequenceRef.current;
+
+    try {
+      const response = await fetch('/api/proxy/chamado/listagem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'Finalizado',
+          pagina: 1,
+          total_registros: 100,
+        }),
+      });
+
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!Array.isArray(data?.lista)) return null;
+      if (requestSequence < lastAppliedFinalizedTicketsRequestRef.current) return null;
+      lastAppliedFinalizedTicketsRequestRef.current = requestSequence;
+
+      const finalizedTickets = data.lista.filter((ticket: any) =>
+        isTicketFinished(ticket?.status)
+      );
+      cacheOpenTicketContexts(finalizedTickets);
+
+      if (!finalizedTicketsInitializedRef.current) {
+        finalizedTickets.forEach((ticket: any) => {
+          const ticketId = String(ticket?.codigo || ticket?.id || '').trim();
+          if (ticketId) knownFinalizedTicketIdsRef.current.add(ticketId);
+        });
+        finalizedTicketsInitializedRef.current = true;
+        return { notifications: 0 };
+      }
+
+      // A API retorna do mais novo para o mais antigo; a fila narra na ordem
+      // cronológica quando mais de um chamado termina entre duas consultas.
+      const newFinalizedTickets = finalizedTickets
+        .filter((ticket: any) => {
+          const ticketId = String(ticket?.codigo || ticket?.id || '').trim();
+          return ticketId && !knownFinalizedTicketIdsRef.current.has(ticketId);
+        })
+        .reverse();
+
+      let notifications = 0;
+      newFinalizedTickets.forEach((ticket: any) => {
+        const ticketId = String(ticket?.codigo || ticket?.id || '').trim();
+        const codigo = Number(ticketId);
+        if (!ticketId || !Number.isFinite(codigo)) return;
+
+        knownFinalizedTicketIdsRef.current.add(ticketId);
+        notifiedFinishedTicketsRef.current.add(ticketId);
+        clearSlaTimers(codigo);
+
+        const context = ticketContextCacheRef.current.get(ticketId);
+        notificationStore.add('finalizado', {
+          codigo,
+          assunto: ticket.assunto || context?.assunto || 'Chamado finalizado',
+          nome: resolveTicketOperator(ticket) || context?.operador || 'Operador',
+          nome_fantasia:
+            ticket.nome_fantasia || ticket.cliente || context?.cliente || 'Cliente',
+        });
+        notifications += 1;
+      });
+
+      return { notifications };
+    } catch (error) {
+      console.error('Erro ao buscar chamados finalizados:', error);
       return null;
     }
   };
@@ -948,7 +1026,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   useEffect(() => {
     if (isFetching || initialTicketReportRequestedRef.current) return;
     initialTicketReportRequestedRef.current = true;
-    void fetchRelatorioTickets();
+    void Promise.all([fetchRelatorioTickets(), fetchFinalizedTickets()]);
   }, [isFetching]);
 
   // Função para parsear data+hora do CSV (formato dd/MM/yyyy e HH:mm:ss)
@@ -1548,13 +1626,17 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       // Junta abertura, atribuição e avaliação por chamado antes de publicar na FIFO.
       const pesquisaResult = await fetchPesquisas(true, false);
       enqueueGroupedTicketLifecycle(openEventResult.events, pesquisaResult?.events ?? []);
-      const reportResult = await fetchRelatorioTickets();
+      const [reportResult, finalizedResult] = await Promise.all([
+        fetchRelatorioTickets(),
+        fetchFinalizedTickets(),
+      ]);
 
       if (
         novosChamados.length === 0 &&
         chamadosAtribuidos.length === 0 &&
         pesquisaResult?.notifications === 0 &&
-        reportResult?.notifications === 0
+        reportResult?.notifications === 0 &&
+        finalizedResult?.notifications === 0
       ) {
         toast({
           title: "Dados atualizados",
@@ -2174,13 +2256,17 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     const { novosChamados, chamadosAtribuidos } = openEventResult;
     const pesquisaResult = await fetchPesquisas(true, false);
     enqueueGroupedTicketLifecycle(openEventResult.events, pesquisaResult?.events ?? []);
-    const reportResult = await fetchRelatorioTickets();
+    const [reportResult, finalizedResult] = await Promise.all([
+      fetchRelatorioTickets(),
+      fetchFinalizedTickets(),
+    ]);
 
     if (
       novosChamados.length === 0 &&
       chamadosAtribuidos.length === 0 &&
       pesquisaResult?.notifications === 0 &&
-      reportResult?.notifications === 0
+      reportResult?.notifications === 0 &&
+      finalizedResult?.notifications === 0
     ) {
       toast({
         title: "Dados atualizados",

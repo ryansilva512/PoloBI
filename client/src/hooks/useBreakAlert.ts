@@ -10,11 +10,18 @@ const BREAK_TIMES = [
 const BREAK_DURATION_MS = 120_000; // 2 minutos de pausa
 const MANAGEMENT_SOUND_KEY = 'polo-bi-management-sound-enabled';
 const MANAGEMENT_SOUND_EVENT = 'polo-bi:management-sound-change';
+const MANAGEMENT_BREAK_AUDIO_EVENT = 'polo-bi:break-audio-change';
 const LAST_BREAK_SLOT_KEY = 'polo-bi-last-break-slot';
 
 const canPlayBreakAudio = () =>
     !window.location.pathname.startsWith('/gestao') ||
     localStorage.getItem(MANAGEMENT_SOUND_KEY) !== 'false';
+
+const publishBreakAudioState = (active: boolean) => {
+    window.dispatchEvent(new CustomEvent(MANAGEMENT_BREAK_AUDIO_EVENT, {
+        detail: { active },
+    }));
+};
 
 // Lista de músicas disponíveis (mp3 primeiro, mpeg como fallback)
 // IMPORTANTE: nomes de arquivo devem ser URL-safe (sem espaços, apóstrofos, etc.)
@@ -99,6 +106,7 @@ export function useBreakAlert() {
     // com os dados do dashboard durante a abertura da tela.
     useEffect(() => {
         return () => {
+            if (breakIsActiveRef.current) publishBreakAudioState(false);
             const audio = activeAudioRef.current;
             activeAudioRef.current = null;
             if (!audio) return;
@@ -293,6 +301,7 @@ export function useBreakAlert() {
             breakIsActiveRef.current = false;
             setPhase('queued');
             stopMusic();
+            publishBreakAudioState(false);
 
             const cycle = breakCycleRef.current;
             const announcementId = `break-return-${Date.now()}`;
@@ -340,6 +349,7 @@ export function useBreakAlert() {
         console.log('🚶 Break Alert: Hora de se levantar!');
         const cycle = ++breakCycleRef.current;
         breakIsActiveRef.current = true;
+        publishBreakAudioState(true);
         setPhase('queued');
         setSecondsLeft(120);
         musicStartedRef.current = false;
@@ -393,6 +403,7 @@ export function useBreakAlert() {
     const dismiss = useCallback(() => {
         breakCycleRef.current += 1;
         breakIsActiveRef.current = false;
+        publishBreakAudioState(false);
         if (breakTimerRef.current) clearTimeout(breakTimerRef.current);
         if (countdownRef.current) clearInterval(countdownRef.current);
         const announcementId = activeBreakAnnouncementIdRef.current;
