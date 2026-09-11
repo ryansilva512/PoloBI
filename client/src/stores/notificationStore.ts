@@ -124,6 +124,30 @@ const cleanSpeechValue = (value: unknown, fallback: string): string => {
   return normalized || fallback;
 };
 
+const normalizeOperatorName = (value: string): string =>
+  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+
+const SPECIAL_SPOKEN_OPERATOR_NAMES: Readonly<Record<string, string>> = {
+  "celio carvalho": "Dom Senhor Célio Carvalho",
+  "dom senhor celio carvalho": "Dom Senhor Célio Carvalho",
+  "abraao lima": "Dom Abraão Lima (Idoso Carismático)",
+  "dom abraao lima (idoso carismatico)": "Dom Abraão Lima (Idoso Carismático)",
+};
+
+const spokenOperatorName = (
+  value: unknown,
+  options: { defaultHonorific?: boolean } = {},
+): string => {
+  const name = cleanSpeechValue(value, "não informado");
+  const specialName = SPECIAL_SPOKEN_OPERATOR_NAMES[normalizeOperatorName(name)];
+
+  if (specialName) return specialName;
+  if (options.defaultHonorific && !normalizeOperatorName(name).startsWith("dom ")) {
+    return `dom ${name}`;
+  }
+  return name;
+};
+
 const ticketCode = (type: NotificationType, data: NotificationData): string | undefined => {
   if (type === "pesquisa_satisfacao") {
     return cleanSpeechValue((data as PesquisaSatisfacaoData).ticket, "");
@@ -162,11 +186,11 @@ export function buildAnnouncementText(
     }
     case "chamado_atribuido": {
       const ticket = data as ChamadoAtribuidoData;
-      return `O operador dom ${cleanSpeechValue(ticket.nome, "não informado")}, assumiu o chamado do cliente ${cleanSpeechValue(ticket.nome_fantasia, "não informado")}.`;
+      return `O operador ${spokenOperatorName(ticket.nome, { defaultHonorific: true })}, assumiu o chamado do cliente ${cleanSpeechValue(ticket.nome_fantasia, "não informado")}.`;
     }
     case "pesquisa_satisfacao": {
       const survey = data as PesquisaSatisfacaoData;
-      return `Nova avaliação. O cliente ${cleanSpeechValue(survey.razao_social, "não informado")}, avaliou o operador ${cleanSpeechValue(survey.operador, "não informado")}, com nota ${cleanSpeechValue(survey.nota, "não informada")}.`;
+      return `Nova avaliação. O cliente ${cleanSpeechValue(survey.razao_social, "não informado")}, avaliou o operador ${spokenOperatorName(survey.operador)}, com nota ${cleanSpeechValue(survey.nota, "não informada")}.`;
     }
     case "chamado_excluido": {
       const ticket = data as ChamadoExcluidoData;
@@ -174,7 +198,7 @@ export function buildAnnouncementText(
     }
     case "finalizado": {
       const ticket = data as FinalizadoData;
-      return `O chamado do cliente ${cleanSpeechValue(ticket.nome_fantasia, "não informado")}, foi finalizado pelo operador ${cleanSpeechValue(ticket.nome, "não informado")}.`;
+      return `O chamado do cliente ${cleanSpeechValue(ticket.nome_fantasia, "não informado")}, foi finalizado pelo operador ${spokenOperatorName(ticket.nome)}.`;
     }
     case "sla_aviso": {
       const ticket = data as SLAAvisoData;

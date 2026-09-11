@@ -109,6 +109,59 @@ test("usa a nomenclatura definida para avaliação, finalização e exclusão", 
   }), "O chamado do cliente Cliente Exemplo, foi identificado como excluído no Milvus.");
 });
 
+test("aplica os nomes especiais de Célio e Abraão em todas as narrações", () => {
+  assert.equal(buildAnnouncementText("chamado_atribuido", {
+    codigo: 11,
+    assunto: "Acesso",
+    nome_fantasia: "Cliente Exemplo",
+    nome: "  cElIo   CaRvAlHo ",
+  }), "O operador Dom Senhor Célio Carvalho, assumiu o chamado do cliente Cliente Exemplo.");
+
+  assert.equal(buildAnnouncementText("finalizado", {
+    codigo: 12,
+    assunto: "Acesso",
+    nome_fantasia: "Cliente Exemplo",
+    nome: "CÉLIO CARVALHO",
+  }), "O chamado do cliente Cliente Exemplo, foi finalizado pelo operador Dom Senhor Célio Carvalho.");
+
+  assert.equal(buildAnnouncementText("pesquisa_satisfacao", {
+    ticket: "13",
+    razao_social: "Cliente Exemplo",
+    operador: "  Abraão   Lima  ",
+    nota: "5",
+  }), "Nova avaliação. O cliente Cliente Exemplo, avaliou o operador Dom Abraão Lima (Idoso Carismático), com nota 5.");
+
+  assert.equal(buildAnnouncementText("chamado_atribuido", {
+    codigo: 14,
+    assunto: "Acesso",
+    nome_fantasia: "Cliente Exemplo",
+    nome: "ABRAAO LIMA",
+  }), "O operador Dom Abraão Lima (Idoso Carismático), assumiu o chamado do cliente Cliente Exemplo.");
+
+  assert.equal(buildAnnouncementText("chamado_atribuido", {
+    codigo: 15,
+    assunto: "Acesso",
+    nome_fantasia: "Cliente Exemplo",
+    nome: "Dom Senhor Célio Carvalho",
+  }), "O operador Dom Senhor Célio Carvalho, assumiu o chamado do cliente Cliente Exemplo.");
+});
+
+test("mantém o tratamento atual para os demais operadores", () => {
+  assert.equal(buildAnnouncementText("chamado_atribuido", {
+    codigo: 16,
+    assunto: "Acesso",
+    nome_fantasia: "Cliente Exemplo",
+    nome: "Mariana Souza",
+  }), "O operador dom Mariana Souza, assumiu o chamado do cliente Cliente Exemplo.");
+
+  assert.equal(buildAnnouncementText("finalizado", {
+    codigo: 17,
+    assunto: "Acesso",
+    nome_fantasia: "Cliente Exemplo",
+    nome: "Mariana Souza",
+  }), "O chamado do cliente Cliente Exemplo, foi finalizado pelo operador Mariana Souza.");
+});
+
 test("erro 502 permanece visual, mas não gera texto de voz", () => {
   assert.equal(buildAnnouncementText("erro_milvus", {
     status: 502,
