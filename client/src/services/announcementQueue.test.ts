@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AnnouncementQueue, type AnnouncementPhase } from "./announcementQueue";
+import {
+  AnnouncementQueue,
+  DEFAULT_SPEECH_VOLUME,
+  type AnnouncementPhase,
+} from "./announcementQueue";
 
 class FakeUtterance {
   onend: (() => void) | null = null;
@@ -106,6 +110,8 @@ test("prioriza uma voz feminina brasileira mesmo quando a masculina vem primeiro
   await waitUntil(() => speech.spoken.length === 1);
 
   assert.equal(speech.spoken[0].voice, maria);
+  assert.equal(speech.spoken[0].volume, DEFAULT_SPEECH_VOLUME);
+  assert.equal(DEFAULT_SPEECH_VOLUME, 1);
   speech.spoken[0].onend?.();
 });
 

@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  AMBIENT_DUCKED_VOLUME,
   AMBIENT_TRACKS,
   AMBIENT_VOLUME,
+  getAmbientVolume,
   getNextAmbientTrackIndex,
 } from "./useAmbientMusic";
 
@@ -28,6 +30,11 @@ test("reinicia a playlist ambiente depois da quinta faixa", () => {
   assert.deepEqual(playedIndexes, [0, 1, 2, 3, 4, 0]);
 });
 
-test("preserva o volume ambiente em 16%", () => {
-  assert.equal(AMBIENT_VOLUME, 0.16);
+test("mantém a música baixa e reduz ainda mais durante a narração", () => {
+  assert.equal(AMBIENT_VOLUME, 0.08);
+  assert.equal(AMBIENT_DUCKED_VOLUME, 0.02);
+  assert.equal(getAmbientVolume(null), 0.08);
+  assert.equal(getAmbientVolume("cue"), 0.02);
+  assert.equal(getAmbientVolume("speaking"), 0.02);
+  assert.equal(getAmbientVolume("displaying"), 0.08);
 });

@@ -51,6 +51,7 @@ type SpeechResult = "ended" | "error" | "muted" | "unsupported";
 
 const DEFAULT_GAP_MS = 450;
 const VOICES_TIMEOUT_MS = 500;
+export const DEFAULT_SPEECH_VOLUME = 1;
 
 const FEMALE_PORTUGUESE_VOICE_HINTS = [
   "maria",
@@ -293,7 +294,7 @@ export class AnnouncementQueue {
       utterance.lang = item.lang ?? "pt-BR";
       utterance.rate = item.rate ?? 0.96;
       utterance.pitch = item.pitch ?? 1;
-      utterance.volume = item.volume ?? 1;
+      utterance.volume = item.volume ?? DEFAULT_SPEECH_VOLUME;
 
       const preferredVoice = selectPreferredPortugueseVoice(voices);
       if (preferredVoice) utterance.voice = preferredVoice;

@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  announcementQueue,
+  type AnnouncementPhase,
+} from "@/services/announcementQueue";
 
 const AMBIENT_PREFERENCE_KEY = "polo-bi-management-ambient-enabled";
 const MANAGEMENT_BREAK_AUDIO_EVENT = "polo-bi:break-audio-change";
-export const AMBIENT_VOLUME = 0.16;
+export const AMBIENT_VOLUME = 0.08;
+export const AMBIENT_DUCKED_VOLUME = 0.02;
 
 export const AMBIENT_TRACKS = [
   "/music/ambient/01-drawbar.mp3",
@@ -14,6 +19,11 @@ export const AMBIENT_TRACKS = [
 
 export const getNextAmbientTrackIndex = (currentIndex: number): number =>
   (currentIndex + 1) % AMBIENT_TRACKS.length;
+
+export const getAmbientVolume = (announcementPhase: AnnouncementPhase | null): number =>
+  announcementPhase === "cue" || announcementPhase === "speaking"
+    ? AMBIENT_DUCKED_VOLUME
+    : AMBIENT_VOLUME;
 
 const getInitialPreference = () => {
   if (typeof window === "undefined") return true;
@@ -32,6 +42,7 @@ export function useAmbientMusic({
   const [enabled, setEnabledState] = useState(getInitialPreference);
   const [isPlaying, setIsPlaying] = useState(false);
   const [breakAudioActive, setBreakAudioActive] = useState(false);
+  const [announcementPhase, setAnnouncementPhase] = useState<AnnouncementPhase | null>(null);
   const [pageVisible, setPageVisible] = useState(
     () => typeof document === "undefined" || document.visibilityState === "visible",
   );
@@ -102,6 +113,15 @@ export function useAmbientMusic({
       audio.load();
     };
   }, [loadTrack]);
+
+  useEffect(() => announcementQueue.subscribe((snapshot) => {
+    setAnnouncementPhase(snapshot.phase);
+  }), []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) audio.volume = getAmbientVolume(announcementPhase);
+  }, [announcementPhase]);
 
   useEffect(() => {
     let resumeTimer: ReturnType<typeof setTimeout> | null = null;
