@@ -1,11 +1,11 @@
 # Playlist ambiente
 
-Arquivos MP3 usados pela aplicação, fornecidos para uso em produção:
+Faixas suaves usadas pela aplicação, na ordem de reprodução:
 
-1. `01-drawbar.mp3`
-2. `02-session.mp3`
-3. `03-tinfoil.mp3`
-4. `04-wake.mp3`
-5. `05-jornada-del-muerto.mp3`
+1. `Winter Wind`, de Diego Nava — `01-winter-wind.mp3`
+2. `Majestic`, de Diego Nava — `02-majestic.mp3`
+3. `Lonely in the Bar`, de Diego Nava — `03-lonely-in-the-bar.mp3`
+4. `Just Walk`, de Diego Nava — `04-just-walk.mp3`
+5. `Space Bird`, de Diego Nava — `05-space-bird.mp3`
 
-A aplicação reproduz os arquivos nessa ordem e volta à primeira faixa ao finalizar a quinta. O arquivo de `Tinfoil` contém apenas os 71 segundos correspondentes à faixa, sem a música `Powerless` que vinha anexada ao áudio de origem.
+A aplicação volta para `Winter Wind` ao finalizar a quinta faixa. Consulte `AMBIENT_LICENSE.md` para a origem e a licença dos arquivos.
