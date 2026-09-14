@@ -36,6 +36,14 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Clock, Timer, User, Building2, FileText, Download, Loader2, PartyPopper, TrendingUp, Flame, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+    getPredominantSlaTarget,
+    parseSlaDurationMinutes,
+} from "@/services/slaTimeMetrics";
+import {
+    fetchNativeSlaTickets,
+    type SlaTicketDetail,
+} from "@/services/slaTicketService";
 import jsPDF from "jspdf";
 
 const META_RESPOSTA_MINUTOS = 5;
@@ -130,24 +138,7 @@ export default function RegistrosExpirados() {
     const [currentPage, setCurrentPage] = useState(1);
     const { toast } = useToast();
 
-    // Interface para dados do relatório de tickets (com campos SLA)
-    interface TicketDetalhado {
-        ticket: string;
-        data_criacao: string;
-        hora_criacao: string;
-        tempo_gasto_sla_resposta: string;  // Tempo real SLA resposta
-        tempo_gasto_sla_solucao: string;   // Tempo real SLA solução
-        status_sla_resposta: string;       // "Em conformidade", "Estourado", etc
-        status_sla_solucao: string;        // "Em conformidade", "Estourado", etc
-        operador: string;
-        nome_fantasia: string;
-        tipo_ticket: string;
-        contato: string;
-        ticket_excluido: string;
-    }
-
-    // Estado para tickets detalhados (do CSV com campos SLA)
-    const [ticketsDetalhados, setTicketsDetalhados] = useState<TicketDetalhado[]>([]);
+    const [ticketsDetalhados, setTicketsDetalhados] = useState<SlaTicketDetail[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -156,14 +147,14 @@ export default function RegistrosExpirados() {
         try {
             setIsLoading(true);
             setLoadError(null);
-            const response = await fetch('/api/proxy/relatorio-tickets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            const tickets = await fetchNativeSlaTickets({
+                data_inicial: filters.data_inicial,
+                data_final: filters.data_final,
+                analista: filters.analista,
+                mesa_trabalho: filters.mesa_trabalho,
             });
-            if (!response.ok) throw new Error(`Não foi possível carregar os registros (${response.status}).`);
-            const data = await response.json();
-            console.log('📊 Relatório de tickets carregado:', data?.lista?.length, 'registros');
-            setTicketsDetalhados(data?.lista || []);
+            console.log('📊 Relatório de tickets carregado:', tickets.length, 'registros');
+            setTicketsDetalhados(tickets);
         } catch (e) {
             console.error('Erro ao buscar relatório de tickets:', e);
             setLoadError(e instanceof Error ? e.message : 'Não foi possível carregar os registros expirados.');
@@ -174,8 +165,8 @@ export default function RegistrosExpirados() {
 
     // Buscar relatório de tickets ao montar
     useEffect(() => {
-        fetchRelatorioTickets();
-    }, []);
+        void fetchRelatorioTickets();
+    }, [filters.data_inicial, filters.data_final, filters.analista, filters.mesa_trabalho]);
 
     // Função para converter HH:MM:SS para minutos
     const horaStringToMinutos = (horaStr: string): number => {
@@ -292,6 +283,19 @@ export default function RegistrosExpirados() {
             .sort((a, b) => b.tempoAtendimento - a.tempoAtendimento);
     }, [ticketsFiltrados]);
 
+    const metasSla = useMemo(() => ({
+        respostaMinutos: getPredominantSlaTarget(
+            ticketsFiltrados,
+            'total_sla_resposta',
+            META_RESPOSTA_MINUTOS,
+        ),
+        solucaoMinutos: getPredominantSlaTarget(
+            ticketsFiltrados,
+            'total_sla_solucao',
+            META_ATENDIMENTO_HORAS * 60,
+        ),
+    }), [ticketsFiltrados]);
+
     console.log('📊 Registros Expirados:', {
         totalTickets: ticketsDetalhados.length,
         filtrados: ticketsFiltrados.length,
@@ -346,7 +350,9 @@ export default function RegistrosExpirados() {
             const isResposta = activeTab === "resposta";
             const dados = isResposta ? respostasExpiradas : atendimentosExpirados;
             const titulo = isResposta ? "Tempo de Resposta Expirado" : "Tempo de Atendimento Expirado";
-            const meta = isResposta ? "Meta: 00:05:00" : "Meta: 04:00:00";
+            const meta = isResposta
+                ? `Meta: ${formatMinutosCompleto(metasSla.respostaMinutos)}`
+                : `Meta: ${formatMinutosCompleto(metasSla.solucaoMinutos)}`;
             const cor = isResposta ? [245, 158, 11] : [239, 68, 68]; // amber / red
 
             // HEADER CINZA
@@ -561,7 +567,7 @@ export default function RegistrosExpirados() {
                                 <div>
                                     <p className="text-4xl font-bold font-mono text-amber-400 number-highlight">{respostasExpiradas.length}</p>
                                     <p className="text-xs font-medium text-slate-400 mt-1">Respostas Expiradas</p>
-                                    <p className="text-[10px] text-amber-500/80 font-medium">Meta: 5 min</p>
+                                    <p className="text-[10px] text-amber-500/80 font-medium">Meta: {formatMinutosCompleto(metasSla.respostaMinutos)}</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -576,7 +582,7 @@ export default function RegistrosExpirados() {
                                 <div>
                                     <p className="text-4xl font-bold font-mono text-red-400 number-highlight">{atendimentosExpirados.length}</p>
                                     <p className="text-xs font-medium text-slate-400 mt-1">Atendimentos Expirados</p>
-                                    <p className="text-[10px] text-red-500/80 font-medium">Meta: 4 horas</p>
+                                    <p className="text-[10px] text-red-500/80 font-medium">Meta: {formatMinutosCompleto(metasSla.solucaoMinutos)}</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -692,7 +698,7 @@ export default function RegistrosExpirados() {
                                 </div>
                                 Tempo de Resposta Expirado
                                 <span className="text-sm font-normal text-slate-400 ml-2">
-                                    (Meta: 00:05:00)
+                                    (Meta: {formatMinutosCompleto(metasSla.respostaMinutos)})
                                 </span>
                             </CardTitle>
                         </CardHeader>
@@ -700,7 +706,7 @@ export default function RegistrosExpirados() {
                             <div className="rounded-xl overflow-hidden">
                                 <Table>
                                     <TableCaption className="pb-4 text-slate-500">
-                                        Chamados com tempo de resposta superior a 5 minutos
+                                        Chamados com o SLA de resposta marcado como estourado pelo Milvus
                                     </TableCaption>
                                     <TableHeader>
                                         <TableRow className="bg-white/5 border-b border-white/10 hover:bg-white/5">
@@ -730,7 +736,11 @@ export default function RegistrosExpirados() {
                                             </TableRow>
                                         ) : (
                                             respostasExpiradas.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((ticket, idx) => {
-                                                const porcentagem = calcularPorcentagemExcedida(ticket.tempoResposta, META_RESPOSTA_MINUTOS);
+                                                const metaConfigurada = parseSlaDurationMinutes(ticket.total_sla_resposta);
+                                                const metaMinutos = metaConfigurada && metaConfigurada > 0
+                                                    ? metaConfigurada
+                                                    : metasSla.respostaMinutos;
+                                                const porcentagem = calcularPorcentagemExcedida(ticket.tempoResposta, metaMinutos);
                                                 const cores = getExceededColor(porcentagem);
                                                 const barWidth = Math.min(porcentagem, 500) / 5; // max 100%
                                                 return (
@@ -808,7 +818,7 @@ export default function RegistrosExpirados() {
                                 </div>
                                 Tempo de Atendimento Expirado
                                 <span className="text-sm font-normal text-slate-400 ml-2">
-                                    (Meta: 04:00:00)
+                                    (Meta: {formatMinutosCompleto(metasSla.solucaoMinutos)})
                                 </span>
                             </CardTitle>
                         </CardHeader>
@@ -816,7 +826,7 @@ export default function RegistrosExpirados() {
                             <div className="rounded-xl overflow-hidden">
                                 <Table>
                                     <TableCaption className="pb-4 text-slate-500">
-                                        Chamados com tempo de atendimento superior a 4 horas
+                                        Chamados com o SLA de solução marcado como estourado pelo Milvus
                                     </TableCaption>
                                     <TableHeader>
                                         <TableRow className="bg-white/5 border-b border-white/10 hover:bg-white/5">
@@ -846,7 +856,10 @@ export default function RegistrosExpirados() {
                                             </TableRow>
                                         ) : (
                                             atendimentosExpirados.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((ticket, idx) => {
-                                                const metaMinutos = META_ATENDIMENTO_HORAS * 60;
+                                                const metaConfigurada = parseSlaDurationMinutes(ticket.total_sla_solucao);
+                                                const metaMinutos = metaConfigurada && metaConfigurada > 0
+                                                    ? metaConfigurada
+                                                    : metasSla.solucaoMinutos;
                                                 const porcentagem = calcularPorcentagemExcedida(ticket.tempoAtendimento, metaMinutos);
                                                 const cores = getExceededColor(porcentagem);
                                                 const barWidth = Math.min(porcentagem, 500) / 5; // max 100%

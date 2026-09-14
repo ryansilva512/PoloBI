@@ -563,6 +563,18 @@ export async function registerRoutes(
     if (req.body.cliente_token) {
       filtro_body.cliente_token = req.body.cliente_token;
     }
+    if (req.body.data_inicial) {
+      filtro_body.data_hora_criacao_inicial = req.body.data_inicial;
+    }
+    if (req.body.data_final) {
+      filtro_body.data_hora_criacao_final = req.body.data_final;
+    }
+    if (req.body.analista) {
+      filtro_body.tecnico = req.body.analista;
+    }
+    if (req.body.mesa_trabalho) {
+      filtro_body.mesa_trabalho = req.body.mesa_trabalho;
+    }
 
     // Construir body conforme documentação Milvus
     const orderBy = statusFinal === 'Finalizado' ? 'data_solucao' : 'data_criacao';

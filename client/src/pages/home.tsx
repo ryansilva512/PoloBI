@@ -7,8 +7,17 @@ import { ptBR } from "date-fns/locale";
 import {
   aggregateTicketData,
   calculateSLADistribution,
-  horaStringToMinutos,
 } from "@/services/dataAggregator";
+import {
+  calculateSlaTimeAverage,
+  calculateSlaTimeByOperator,
+  getPredominantSlaTarget,
+  parseSlaDurationMinutes,
+} from "@/services/slaTimeMetrics";
+import {
+  fetchNativeSlaTickets,
+  type SlaTicketDetail,
+} from "@/services/slaTicketService";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -360,9 +369,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       // KPIs
       const kpiW = (pageWidth - margin * 2 - 40) / 5;
       const kpis = [
-        { label: 'Total Tickets', value: String(tickets.length), c: [59, 130, 246] },
-        { label: 'Resp. em Dia', value: `${tickets.length - metricasSLAExibicao.respostaEstourada}`, c: [34, 197, 94] },
-        { label: 'Atend. em Dia', value: `${tickets.length - metricasSLAExibicao.solucaoEstourada}`, c: [34, 197, 94] },
+        { label: 'Total Tickets', value: String(ticketsFinalizadosExibicao), c: [59, 130, 246] },
+        { label: 'Resp. em Dia', value: String(respostasDentroSla), c: [34, 197, 94] },
+        { label: 'Atend. em Dia', value: String(solucoesDentroSla), c: [34, 197, 94] },
         { label: 'Resp. Estourada', value: `${metricasSLAExibicao.respostaEstourada}`, c: [239, 68, 68] },
         { label: 'Atend. Expirado', value: `${metricasSLAExibicao.solucaoEstourada}`, c: [239, 68, 68] },
       ];
@@ -393,7 +402,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       pdf.text('Tempo Médio de Resposta', margin + 10, y + 12);
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(16);
-      pdf.text(formatMinutosCompleto(tempoMedioAbertura.minutos), margin + 10, y + 24);
+      pdf.text(formatMinutosCompleto(temposExibicao.tempoMedioAbertura), margin + 10, y + 24);
 
       pdf.setTextColor(52, 211, 153);
       pdf.setFontSize(10);
@@ -401,7 +410,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       pdf.text('Tempo Médio de Atendimento', margin + boxW + 20, y + 12);
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(16);
-      pdf.text(formatMinutosCompleto(tempoMetrics.tempoMedioAtendimento), margin + boxW + 20, y + 24);
+      pdf.text(formatMinutosCompleto(temposExibicao.tempoMedioSolucao), margin + boxW + 20, y + 24);
 
       y += 40;
 
@@ -863,76 +872,39 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   }, [filters.data_inicial, filters.data_final, isFetching]);
 
   // ========== RELATÓRIO DE TICKETS DETALHADO (para cálculos de tempo precisos) ==========
-  interface TicketDetalhado {
-    ticket: string;
-    contato?: string;
-    nome_fantasia?: string;
-    data_criacao: string;
-    hora_criacao: string;
-    data_primeiro_atendimento: string;
-    hora_primeiro_atendimento: string;
-    tempo_total_atendimento: string;
-    tempo_atendimento_interno: string;
-    tempo_atendimento_externo: string;
-    tempo_gasto_sla_resposta: string;  // Tempo real SLA resposta (desconta pausas)
-    tempo_gasto_sla_solucao: string;   // Tempo real SLA solução (desconta pausas)
-    data_solucao: string;
-    hora_solucao: string;
-    operador: string;
-    status: string;
-    ticket_excluido: string;
-    status_sla_resposta: string;
-    status_sla_solucao: string;
-    data_expiracao_sla_resposta: string;
-    hora_expiracao_sla_resposta: string;
-    data_expiracao_sla_solucao: string;
-    hora_expiracao_sla_solucao: string;
-  }
+  type TicketDetalhado = SlaTicketDetail;
 
   const [ticketsDetalhados, setTicketsDetalhados] = useState<TicketDetalhado[]>([]);
-  const [isLoadingTicketsDetalhados, setIsLoadingTicketsDetalhados] = useState(false);
   const ticketReportInitializedRef = useRef(false);
   const ticketReportSequenceRef = useRef(0);
   const lastAppliedTicketReportRef = useRef(0);
   const previousDetailedTicketsRef = useRef<Map<string, TicketDetalhado>>(new Map());
   const notifiedDeletedTicketsRef = useRef<Set<string>>(new Set());
   const notifiedFinishedTicketsRef = useRef<Set<string>>(new Set());
-  const initialTicketReportRequestedRef = useRef(false);
+  const detailedTicketFilterKeyRef = useRef('');
 
   // Função para buscar relatório de tickets detalhado
   const fetchRelatorioTickets = async () => {
     const requestSequence = ++ticketReportSequenceRef.current;
 
     try {
-      setIsLoadingTicketsDetalhados(true);
-      const response = await fetch('/api/proxy/relatorio-tickets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const currentTickets = await fetchNativeSlaTickets({
+        data_inicial: filters.data_inicial,
+        data_final: filters.data_final,
+        analista: filters.analista,
+        mesa_trabalho: filters.mesa_trabalho,
       });
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (!Array.isArray(data?.lista)) return null;
 
       // Uma resposta mais antiga nunca pode fazer o baseline retroceder.
       if (requestSequence < lastAppliedTicketReportRef.current) return null;
       lastAppliedTicketReportRef.current = requestSequence;
 
-      const currentTickets = data.lista as TicketDetalhado[];
       console.log('🔄 fetchRelatorioTickets - Atualizando dados:', currentTickets.length, 'registros');
 
       // Uma resposta inicial vazia pode ser atraso do relatório; aguarda dados confirmáveis.
       if (!ticketReportInitializedRef.current && currentTickets.length === 0) {
         setTicketsDetalhados([]);
         return { notifications: 0 };
-      }
-
-      if (
-        ticketReportInitializedRef.current &&
-        currentTickets.length === 0 &&
-        previousDetailedTicketsRef.current.size > 0
-      ) {
-        console.warn('⚠️ Relatório Ticket vazio; mantendo dados e baseline anteriores');
-        return null;
       }
 
       setTicketsDetalhados(currentTickets);
@@ -1017,17 +989,28 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     } catch (e) {
       console.error('Erro ao buscar relatório de tickets:', e);
       return null;
-    } finally {
-      setIsLoadingTicketsDetalhados(false);
     }
   };
 
-  // Buscar relatório de tickets ao montar
+  // Mantém o relatório nativo sincronizado com o período exibido no painel.
   useEffect(() => {
-    if (isFetching || initialTicketReportRequestedRef.current) return;
-    initialTicketReportRequestedRef.current = true;
+    if (isFetching) return;
+    const filterKey = [
+      filters.data_inicial || '',
+      filters.data_final || '',
+      filters.analista || '',
+      filters.mesa_trabalho || '',
+    ].join('|');
+    if (detailedTicketFilterKeyRef.current === filterKey) return;
+    detailedTicketFilterKeyRef.current = filterKey;
     void Promise.all([fetchRelatorioTickets(), fetchFinalizedTickets()]);
-  }, [isFetching]);
+  }, [
+    isFetching,
+    filters.data_inicial,
+    filters.data_final,
+    filters.analista,
+    filters.mesa_trabalho,
+  ]);
 
   // Função para parsear data+hora do CSV (formato dd/MM/yyyy e HH:mm:ss)
   const parseDataHoraCSV = (data: string, hora: string): Date | null => {
@@ -1045,89 +1028,48 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     }
   };
 
-  // Calcular tempos médios usando mesma lógica do Power BI
-  // Tempo Abertura = HORA DO PRIMEIRO ATENDIMENTO - HORA DE CRIAÇÃO DO TICKET
-  // Tempo Solução = TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE
-  const temposDoRelatorio = useMemo(() => {
-    console.log('📊 temposDoRelatorio - ticketsDetalhados:', ticketsDetalhados.length);
-
-    if (!ticketsDetalhados.length) {
-      return { tempoMedioAbertura: 0, tempoMedioSolucao: 0, totalResposta: 0, totalSolucao: 0 };
-    }
-
-    // Preparar datas do filtro
+  const ticketsDetalhadosFiltrados = useMemo(() => {
     const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
     const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
+    const inicio = dataInicialFiltro ? startOfDay(dataInicialFiltro) : null;
+    const fim = dataFinalFiltro ? endOfDay(dataFinalFiltro) : null;
 
-    const temposResposta: number[] = [];  // Em horas decimais
-    const temposSolucao: number[] = [];   // Em horas decimais
+    return ticketsDetalhados.filter((ticket) => {
+      if (ticket.ticket_excluido === 'Sim') return false;
 
-    // Função para converter HH:MM:SS para horas decimais
-    const horaParaDecimal = (horaStr: string): number | null => {
-      if (!horaStr || horaStr === 'Não possui' || horaStr === '') return null;
-      const partes = horaStr.split(':');
-      if (partes.length < 2) return null;
-      const horas = parseInt(partes[0]) || 0;
-      const minutos = parseInt(partes[1]) || 0;
-      const segundos = parseInt(partes[2]) || 0;
-      return horas + (minutos / 60) + (segundos / 3600);
-    };
-
-    ticketsDetalhados.forEach((t) => {
-      // Ignorar tickets excluídos
-      if (t.ticket_excluido === 'Sim') return;
-
-      // Parsear data de criação para filtrar
-      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
-      if (!dataCriacao) return;
-
-      // Aplicar filtro de data
-      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
-      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
-
-      // TEMPO ABERTURA = HORA 1º ATENDIMENTO - HORA CRIAÇÃO (igual Power BI)
-      const horaCriacao = horaParaDecimal(t.hora_criacao);
-      const horaPrimeiroAtend = horaParaDecimal(t.hora_primeiro_atendimento);
-
-      if (horaCriacao !== null && horaPrimeiroAtend !== null) {
-        let diferenca = horaPrimeiroAtend - horaCriacao;
-        // Se negativo, usa 0 (igual Power BI: if [Diferenca de Horas] < 0 then 0)
-        if (diferenca < 0) diferenca = 0;
-        if (diferenca > 0) {  // Excluir zeros para não distorcer média
-          temposResposta.push(diferenca);
-        }
-      }
-
-      // TEMPO SOLUÇÃO = TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE (igual Power BI)
-      const tempoInterno = horaParaDecimal(t.tempo_atendimento_interno);
-      if (tempoInterno !== null && tempoInterno > 0) {
-        temposSolucao.push(tempoInterno);
-      }
+      const dataCriacao = parseDataHoraCSV(ticket.data_criacao, ticket.hora_criacao);
+      if (!dataCriacao) return false;
+      if (inicio && dataCriacao < inicio) return false;
+      if (fim && dataCriacao > fim) return false;
+      return true;
     });
-
-    // Média em horas decimais, depois converter para minutos para formatação
-    const mediaRespostaHoras = temposResposta.length > 0
-      ? temposResposta.reduce((a, b) => a + b, 0) / temposResposta.length
-      : 0;
-
-    const mediaSolucaoHoras = temposSolucao.length > 0
-      ? temposSolucao.reduce((a, b) => a + b, 0) / temposSolucao.length
-      : 0;
-
-    // Converter horas decimais para minutos para a função formatMinutosCompleto
-    return {
-      tempoMedioAbertura: mediaRespostaHoras * 60,  // Converter para minutos
-      tempoMedioSolucao: mediaSolucaoHoras * 60,    // Converter para minutos
-      totalResposta: temposResposta.length,
-      totalSolucao: temposSolucao.length,
-    };
   }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+
+  // O Milvus já calcula estes tempos conforme expediente, pausas e regras do SLA.
+  // A mesma amostra é usada no resumo e nos rankings, sem teto artificial.
+  const temposDoRelatorio = useMemo(() => {
+    const resposta = calculateSlaTimeAverage(
+      ticketsDetalhadosFiltrados,
+      'tempo_gasto_sla_resposta',
+    );
+    const solucao = calculateSlaTimeAverage(
+      ticketsDetalhadosFiltrados,
+      'tempo_gasto_sla_solucao',
+    );
+
+    return {
+      tempoMedioAbertura: resposta.mediaMinutos,
+      tempoMedioSolucao: solucao.mediaMinutos,
+      totalResposta: resposta.amostras,
+      totalSolucao: solucao.amostras,
+    };
+  }, [ticketsDetalhadosFiltrados]);
 
   // ========== MÉTRICAS SLA NATIVAS DO MILVUS (mais precisas) ==========
   // Usa os campos status_sla_resposta e status_sla_solucao que já vêm calculados
   // pelo Milvus considerando expediente, pausas e configurações do sistema
   const metricasSLAMilvus = useMemo(() => {
-    if (!ticketsDetalhados.length) {
+    if (!ticketsDetalhadosFiltrados.length) {
       return {
         respostaEmDia: 0,
         respostaEstourada: 0,
@@ -1138,9 +1080,6 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       };
     }
 
-    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
-    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
-
     let respostaEmDia = 0;
     let respostaEstourada = 0;
     let solucaoEmDia = 0;
@@ -1148,18 +1087,13 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     let totalComSLAResposta = 0;
     let totalComSLASolucao = 0;
 
-    ticketsDetalhados.forEach((t) => {
-      if (t.ticket_excluido === 'Sim') return;
-
-      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
-      if (!dataCriacao) return;
-
-      // Aplicar filtro de data
-      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
-      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
-
+    ticketsDetalhadosFiltrados.forEach((t) => {
       // Analisar SLA de Resposta (campo nativo do Milvus)
-      if (t.status_sla_resposta && t.status_sla_resposta !== 'Não possui') {
+      if (
+        parseSlaDurationMinutes(t.tempo_gasto_sla_resposta) !== null &&
+        t.status_sla_resposta &&
+        t.status_sla_resposta !== 'Não possui'
+      ) {
         totalComSLAResposta++;
         const statusLower = t.status_sla_resposta.toLowerCase();
         // Valores possíveis: "Em conformidade", "Estourado", "Não possui"
@@ -1171,7 +1105,11 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       }
 
       // Analisar SLA de Solução (campo nativo do Milvus)
-      if (t.status_sla_solucao && t.status_sla_solucao !== 'Não possui') {
+      if (
+        parseSlaDurationMinutes(t.tempo_gasto_sla_solucao) !== null &&
+        t.status_sla_solucao &&
+        t.status_sla_solucao !== 'Não possui'
+      ) {
         totalComSLASolucao++;
         const statusLower = t.status_sla_solucao.toLowerCase();
         if (statusLower.includes('conformidade') || statusLower.includes('dentro') || statusLower.includes('em dia') || statusLower === 'ok') {
@@ -1182,18 +1120,6 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       }
     });
 
-    console.log('📊 Métricas SLA Milvus (CSV - ticketsDetalhados):', {
-      totalTicketsCSV: ticketsDetalhados.filter(t => t.ticket_excluido !== 'Sim').length,
-      respostaEmDia,
-      respostaEstourada,
-      totalResposta: respostaEmDia + respostaEstourada,
-      totalComSLAResposta,
-      solucaoEmDia,
-      solucaoEstourada,
-      totalSolucao: solucaoEmDia + solucaoEstourada,
-      totalComSLASolucao,
-    });
-
     return {
       respostaEmDia,
       respostaEstourada,
@@ -1202,117 +1128,38 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       totalComSLAResposta,
       totalComSLASolucao,
     };
-  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+  }, [ticketsDetalhadosFiltrados]);
   // ========== FIM MÉTRICAS SLA MILVUS ==========
 
-  // Calcular tempo de resposta por operador usando lógica Power BI
-  // Tempo Resposta = HORA DO PRIMEIRO ATENDIMENTO - HORA DE CRIAÇÃO DO TICKET
   const tempoRespostaPorOperadorCSV = useMemo(() => {
-    if (!ticketsDetalhados.length) return [];
+    return calculateSlaTimeByOperator(
+      ticketsDetalhadosFiltrados,
+      'tempo_gasto_sla_resposta',
+    ).map(({ nome, mediaMinutos }) => ({ nome, tempoMedioMinutos: mediaMinutos }));
+  }, [ticketsDetalhadosFiltrados]);
 
-    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
-    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
-
-    // Função para converter HH:MM:SS para horas decimais
-    const horaParaDecimal = (horaStr: string): number | null => {
-      if (!horaStr || horaStr === 'Não possui' || horaStr === '') return null;
-      const partes = horaStr.split(':');
-      if (partes.length < 2) return null;
-      const horas = parseInt(partes[0]) || 0;
-      const minutos = parseInt(partes[1]) || 0;
-      const segundos = parseInt(partes[2]) || 0;
-      return horas + (minutos / 60) + (segundos / 3600);
-    };
-
-    const map = new Map<string, { totalHoras: number; count: number }>();
-
-    ticketsDetalhados.forEach((t) => {
-      if (t.ticket_excluido === 'Sim') return;
-      if (!t.operador) return;
-
-      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
-      if (!dataCriacao) return;
-
-      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
-      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
-
-      // LÓGICA POWER BI: hora_primeiro_atendimento - hora_criacao
-      const horaCriacao = horaParaDecimal(t.hora_criacao);
-      const horaPrimeiroAtend = horaParaDecimal(t.hora_primeiro_atendimento);
-
-      if (horaCriacao !== null && horaPrimeiroAtend !== null) {
-        let diferenca = horaPrimeiroAtend - horaCriacao;
-        // Se negativo, usa 0 (igual Power BI)
-        if (diferenca < 0) diferenca = 0;
-        if (diferenca > 0) {  // Excluir zeros
-          if (!map.has(t.operador)) {
-            map.set(t.operador, { totalHoras: 0, count: 0 });
-          }
-          const data = map.get(t.operador)!;
-          data.totalHoras += diferenca;
-          data.count += 1;
-        }
-      }
-    });
-
-    return Array.from(map.entries())
-      .map(([nome, data]) => ({
-        nome,
-        tempoMedioMinutos: data.count ? (data.totalHoras / data.count) * 60 : 0,  // Converter horas para minutos
-      }))
-      .sort((a, b) => a.tempoMedioMinutos - b.tempoMedioMinutos);
-  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
-
-  // Calcular tempo de atendimento por operador usando lógica Power BI
-  // Tempo Atendimento = TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE
   const tempoAtendimentoPorOperadorCSV = useMemo(() => {
-    if (!ticketsDetalhados.length) return [];
+    return calculateSlaTimeByOperator(
+      ticketsDetalhadosFiltrados,
+      'tempo_gasto_sla_solucao',
+    ).map(({ nome, mediaMinutos }) => ({
+      nome,
+      tempoMedioAtendimentoMinutos: mediaMinutos,
+    }));
+  }, [ticketsDetalhadosFiltrados]);
 
-    const dataInicialFiltro = filters.data_inicial ? parseDataPesquisa(filters.data_inicial) : null;
-    const dataFinalFiltro = filters.data_final ? parseDataPesquisa(filters.data_final) : null;
-
-    // Função para converter HH:MM:SS para horas decimais
-    const horaParaDecimal = (horaStr: string): number | null => {
-      if (!horaStr || horaStr === 'Não possui' || horaStr === '') return null;
-      const partes = horaStr.split(':');
-      if (partes.length < 2) return null;
-      const horas = parseInt(partes[0]) || 0;
-      const minutos = parseInt(partes[1]) || 0;
-      const segundos = parseInt(partes[2]) || 0;
-      return horas + (minutos / 60) + (segundos / 3600);
-    };
-
-    const map = new Map<string, { totalHoras: number; count: number }>();
-
-    ticketsDetalhados.forEach((t) => {
-      if (t.ticket_excluido === 'Sim') return;
-      if (!t.operador) return;
-
-      const dataCriacao = parseDataHoraCSV(t.data_criacao, t.hora_criacao);
-      if (!dataCriacao) return;
-
-      if (dataInicialFiltro && dataCriacao < startOfDay(dataInicialFiltro)) return;
-      if (dataFinalFiltro && dataCriacao > endOfDay(dataFinalFiltro)) return;
-
-      // LÓGICA POWER BI: tempo_atendimento_interno (TEMPO DE ATENDIMENTO INTERNO DENTRO DO EXPEDIENTE)
-      const tempoInterno = horaParaDecimal(t.tempo_atendimento_interno);
-      if (tempoInterno !== null && tempoInterno > 0) {
-        if (!map.has(t.operador)) {
-          map.set(t.operador, { totalHoras: 0, count: 0 });
-        }
-        const data = map.get(t.operador)!;
-        data.totalHoras += tempoInterno;
-        data.count += 1;
-      }
-    });
-
-    return Array.from(map.entries())
-      .map(([nome, data]) => ({
-        nome,
-        tempoMedioAtendimentoMinutos: data.count ? (data.totalHoras / data.count) * 60 : 0,  // Converter horas para minutos
-      }))
-      .sort((a, b) => a.tempoMedioAtendimentoMinutos - b.tempoMedioAtendimentoMinutos);
-  }, [ticketsDetalhados, filters.data_inicial, filters.data_final]);
+  const metasSla = useMemo(() => ({
+    respostaMinutos: getPredominantSlaTarget(
+      ticketsDetalhadosFiltrados,
+      'total_sla_resposta',
+      META_RESPOSTA_MINUTOS,
+    ),
+    solucaoMinutos: getPredominantSlaTarget(
+      ticketsDetalhadosFiltrados,
+      'total_sla_solucao',
+      META_ATENDIMENTO_HORAS * 60,
+    ),
+  }), [ticketsDetalhadosFiltrados]);
   // ========== END RELATÓRIO DE TICKETS ==========
 
   type OpenTicketAlertData = {
@@ -1769,42 +1616,6 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     return Array.from(map.values());
   }, [tickets, dataInicialDate, dataFinalDate]);
 
-  // Helpers para diffs baseados em datas
-  const diffsRespostaMin = useMemo(() => {
-    return ticketsFiltrados
-      .map((ticket) => {
-        const criacao = parseDateSafely(ticket.data_criacao);
-        const inicio = parseDateSafely(ticket.data_inicial);
-        if (!criacao || !inicio) return null;
-        const diffMs = inicio.getTime() - criacao.getTime();
-        if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-        return diffMs / (1000 * 60);
-      })
-      .filter((v): v is number => v !== null);
-  }, [ticketsFiltrados]);
-
-  // CORREÇÃO FINAL: Usar horas_internas (tempo DENTRO do expediente) - igual ao Power BI
-  // NÃO usar total_horas_atendimento pois inclui tempo fora do expediente
-  const diffsAtendimentoMin = useMemo(() => {
-    return ticketsFiltrados
-      .map((ticket) => {
-        // CORREÇÃO: Usar horas_internas que é o tempo dentro do expediente
-        // Este é o campo correto que o Power BI usa
-        const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
-        const tempoAtendimento = horaStringToMinutos(horaStr);
-        if (tempoAtendimento <= 0) return null;
-        return tempoAtendimento;
-      })
-      .filter((v): v is number => v !== null);
-  }, [ticketsFiltrados]);
-
-  const calcularMediaCap = (valores: number[], capMinutos: number) => {
-    const filtrados = valores.filter((v) => v <= capMinutos);
-    if (!filtrados.length) return { media: 0, considerados: 0, total: valores.length };
-    const soma = filtrados.reduce((a, b) => a + b, 0);
-    return { media: soma / filtrados.length, considerados: filtrados.length, total: valores.length };
-  };
-
   const aggregatedData = useMemo(() => {
     if (!ticketsFiltrados.length) return null;
     return aggregateTicketData(ticketsFiltrados);
@@ -1813,55 +1624,6 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
   const slaData = useMemo(() => {
     if (!ticketsFiltrados.length) return null;
     return calculateSLADistribution(ticketsFiltrados);
-  }, [ticketsFiltrados]);
-
-  // Tempo médio de abertura/resposta (data_inicial - data_criacao) com cap de 3h
-  const tempoMedioAbertura = useMemo(() => {
-    if (!diffsRespostaMin.length) return { minutos: 0, total: 0, considerados: 0 };
-    const { media, considerados, total } = calcularMediaCap(diffsRespostaMin, 180); // cap 3h
-    return { minutos: media, total, considerados };
-  }, [diffsRespostaMin]);
-
-  const tempoRespostaPorOperador = useMemo(() => {
-    if (!ticketsFiltrados.length) return [];
-
-    const capMinutos = 180; // cap em 3h para evitar distorÇõÇœes
-
-    const map = new Map<
-      string,
-      {
-        totalMinutos: number;
-        count: number;
-      }
-    >();
-
-    ticketsFiltrados.forEach((ticket) => {
-      const criacao = parseDateSafely(ticket.data_criacao);
-      const inicio = parseDateSafely(ticket.data_inicial);
-
-      if (!criacao || !inicio) return;
-
-      const diffMs = inicio.getTime() - criacao.getTime();
-      if (!Number.isFinite(diffMs) || diffMs < 0) return;
-
-      const minutos = Math.min(diffMs / (1000 * 60), capMinutos);
-      const nome = ticket.nome;
-
-      if (!map.has(nome)) {
-        map.set(nome, { totalMinutos: 0, count: 0 });
-      }
-
-      const data = map.get(nome)!;
-      data.totalMinutos += minutos;
-      data.count += 1;
-    });
-
-    return Array.from(map.entries())
-      .map(([nome, data]) => ({
-        nome,
-        tempoMedioMinutos: data.count ? data.totalMinutos / data.count : 0,
-      }))
-      .sort((a, b) => b.tempoMedioMinutos - a.tempoMedioMinutos);
   }, [ticketsFiltrados]);
 
   const periodoDias = useMemo(
@@ -1967,44 +1729,6 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
       .sort((a, b) => b.total - a.total);
   }, [ticketsFiltrados]);
 
-  const tempoMetrics = useMemo(() => {
-    if (!ticketsFiltrados.length) {
-      return {
-        tempoMedioResposta: 0,
-        tempoMedioAtendimento: 0,
-        respostaEmDia: 0,
-        respostaEstourada: 0,
-        atendimentoEmDia: 0,
-        atendimentoExpirado: 0,
-        totalRespMedida: 0,
-        totalAtendMedida: 0,
-      };
-    }
-
-    // Resposta (data_inicial - data_criacao)
-    const respValid = diffsRespostaMin;
-    const respEmDia = respValid.filter((m) => m <= META_RESPOSTA_MINUTOS).length;
-    const respEstourada = respValid.filter((m) => m > META_RESPOSTA_MINUTOS).length;
-    const respMedia = calcularMediaCap(respValid, 180).media; // cap 3h
-
-    // Atendimento (data_final - data_inicial)
-    const atendValid = diffsAtendimentoMin;
-    const atendEmDia = atendValid.filter((m) => m <= META_ATENDIMENTO_HORAS * 60).length;
-    const atendExpirado = atendValid.filter((m) => m > META_ATENDIMENTO_HORAS * 60).length;
-    const atendMedia = calcularMediaCap(atendValid, 480).media; // cap 8h
-
-    return {
-      tempoMedioResposta: respMedia,
-      tempoMedioAtendimento: atendMedia,
-      respostaEmDia: respEmDia,
-      respostaEstourada: respEstourada,
-      atendimentoEmDia: atendEmDia,
-      atendimentoExpirado: atendExpirado,
-      totalRespMedida: respValid.length,
-      totalAtendMedida: atendValid.length,
-    };
-  }, [ticketsFiltrados, diffsRespostaMin, diffsAtendimentoMin]);
-
   const conformidadePercentual =
     slaData && tickets.length
       ? (slaData.emDia / (slaData.emDia + slaData.emRisco + slaData.estourado)) * 100
@@ -2012,76 +1736,22 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
   const mediaEstimadaNotas = Number(((conformidadePercentual / 100) * 5).toFixed(1));
 
-  // CORREÇÃO FINAL: Usar horas_internas (tempo DENTRO do expediente) - igual ao Power BI
-  const operadoresPorAtendimento = useMemo(() => {
-    if (!ticketsFiltrados.length) return [];
-    const capMinutos = 480; // cap 8h
-    const map = new Map<
-      string,
-      {
-        totalMinutos: number;
-        count: number;
-      }
-    >();
-
-    ticketsFiltrados.forEach((ticket) => {
-      // CORREÇÃO: Usar horas_internas que é o tempo dentro do expediente
-      const horaStr = (ticket as any).horas_internas || ticket.total_horas_atendimento;
-      const tempoAtendimento = horaStringToMinutos(horaStr);
-      if (tempoAtendimento <= 0) return;
-
-      const minutos = Math.min(tempoAtendimento, capMinutos);
-      const nome = ticket.nome;
-
-      if (!map.has(nome)) {
-        map.set(nome, { totalMinutos: 0, count: 0 });
-      }
-      const data = map.get(nome)!;
-      data.totalMinutos += minutos;
-      data.count += 1;
-    });
-
-    return Array.from(map.entries())
-      .map(([nome, data]) => ({
-        nome,
-        tempoMedioAtendimentoMinutos: data.count ? data.totalMinutos / data.count : 0,
-      }))
-      .sort((a, b) => b.tempoMedioAtendimentoMinutos - a.tempoMedioAtendimentoMinutos);
-  }, [ticketsFiltrados]);
-
-  // Mantém os campos mais precisos do relatório personalizado quando eles
-  // existem no período e recorre à API principal quando o CSV vem vazio,
-  // limitado ou desatualizado.
+  // Indicadores de SLA nunca usam diferença de relógio como contingência:
+  // isso incluiria noites, fins de semana e pausas e inflaria os resultados.
   const temposExibicao = {
-    tempoMedioAbertura: temposDoRelatorio.totalResposta > 0
-      ? temposDoRelatorio.tempoMedioAbertura
-      : tempoMetrics.tempoMedioResposta,
-    tempoMedioSolucao: temposDoRelatorio.totalSolucao > 0
-      ? temposDoRelatorio.tempoMedioSolucao
-      : tempoMetrics.tempoMedioAtendimento,
+    tempoMedioAbertura: temposDoRelatorio.tempoMedioAbertura,
+    tempoMedioSolucao: temposDoRelatorio.tempoMedioSolucao,
   };
 
-  const tempoRespostaExibicao = tempoRespostaPorOperadorCSV.length > 0
-    ? tempoRespostaPorOperadorCSV
-    : tempoRespostaPorOperador;
+  const tempoRespostaExibicao = tempoRespostaPorOperadorCSV;
 
-  const tempoAtendimentoExibicao = tempoAtendimentoPorOperadorCSV.length > 0
-    ? tempoAtendimentoPorOperadorCSV
-    : operadoresPorAtendimento;
+  const tempoAtendimentoExibicao = tempoAtendimentoPorOperadorCSV;
 
   const metricasSLAExibicao = {
-    respostaEstourada: metricasSLAMilvus.totalComSLAResposta > 0
-      ? metricasSLAMilvus.respostaEstourada
-      : tempoMetrics.respostaEstourada,
-    solucaoEstourada: metricasSLAMilvus.totalComSLASolucao > 0
-      ? metricasSLAMilvus.solucaoEstourada
-      : tempoMetrics.atendimentoExpirado,
-    totalComSLAResposta: metricasSLAMilvus.totalComSLAResposta > 0
-      ? metricasSLAMilvus.totalComSLAResposta
-      : tempoMetrics.totalRespMedida,
-    totalComSLASolucao: metricasSLAMilvus.totalComSLASolucao > 0
-      ? metricasSLAMilvus.totalComSLASolucao
-      : tempoMetrics.totalAtendMedida,
+    respostaEstourada: metricasSLAMilvus.respostaEstourada,
+    solucaoEstourada: metricasSLAMilvus.solucaoEstourada,
+    totalComSLAResposta: metricasSLAMilvus.totalComSLAResposta,
+    totalComSLASolucao: metricasSLAMilvus.totalComSLASolucao,
   };
 
   const rankingOperadores = useMemo(() => {
@@ -2485,10 +2155,25 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     );
   }
 
+  const respostasDentroSla = Math.max(
+    0,
+    metricasSLAExibicao.totalComSLAResposta - metricasSLAExibicao.respostaEstourada,
+  );
+  const solucoesDentroSla = Math.max(
+    0,
+    metricasSLAExibicao.totalComSLASolucao - metricasSLAExibicao.solucaoEstourada,
+  );
+  const ticketsFinalizadosNativos = ticketsDetalhadosFiltrados.filter((ticket) =>
+    isTicketFinished(ticket.status)
+  ).length;
+  const ticketsFinalizadosExibicao = ticketsDetalhadosFiltrados.length > 0
+    ? ticketsFinalizadosNativos
+    : aggregatedData.totalTickets;
+
   const kpiCards = [
     {
       titulo: "Tickets Finalizados",
-      valor: aggregatedData.totalTickets.toLocaleString("pt-BR"),
+      valor: ticketsFinalizadosExibicao.toLocaleString("pt-BR"),
       detalhe: "",
       icon: <Phone className="h-6 w-6 text-emerald-400 icon-glow" />,
       className: "glass glow-emerald",
@@ -2496,9 +2181,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     },
     {
       titulo: "Qtd Resposta em Dia",
-      valor: (aggregatedData.totalTickets - metricasSLAExibicao.respostaEstourada).toLocaleString("pt-BR"),
-      detalhe: aggregatedData.totalTickets
-        ? `${(((aggregatedData.totalTickets - metricasSLAExibicao.respostaEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
+      valor: respostasDentroSla.toLocaleString("pt-BR"),
+      detalhe: metricasSLAExibicao.totalComSLAResposta
+        ? `${((respostasDentroSla / metricasSLAExibicao.totalComSLAResposta) * 100).toFixed(1)}%`
         : "0%",
       icon: <Timer className="h-6 w-6 text-sky-400 icon-glow" />,
       className: "glass glow-blue",
@@ -2506,9 +2191,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     },
     {
       titulo: "Qtd Atendimento em Dia",
-      valor: (aggregatedData.totalTickets - metricasSLAExibicao.solucaoEstourada).toLocaleString("pt-BR"),
-      detalhe: aggregatedData.totalTickets
-        ? `${(((aggregatedData.totalTickets - metricasSLAExibicao.solucaoEstourada) / aggregatedData.totalTickets) * 100).toFixed(1)}%`
+      valor: solucoesDentroSla.toLocaleString("pt-BR"),
+      detalhe: metricasSLAExibicao.totalComSLASolucao
+        ? `${((solucoesDentroSla / metricasSLAExibicao.totalComSLASolucao) * 100).toFixed(1)}%`
         : "0%",
       icon: <Clock4 className="h-6 w-6 text-emerald-400 icon-glow" />,
       className: "glass glow-emerald",
@@ -2555,7 +2240,6 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     );
   };
 
-  const tempoMedioRespostaGlobal = tempoMedioAbertura.minutos;
   const topOperadores = rankingOperadores.slice(0, 5);
 
   if (isManagement) {
@@ -2566,6 +2250,8 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         chamadosAtivos={chamadosAtivos}
         tempoAbertura={formatMinutosCompleto(temposExibicao.tempoMedioAbertura)}
         tempoSolucao={formatMinutosCompleto(temposExibicao.tempoMedioSolucao)}
+        metaResposta={formatMinutosCompleto(metasSla.respostaMinutos)}
+        metaSolucao={formatMinutosCompleto(metasSla.solucaoMinutos)}
         atividade={atividadePorOperadorDiaSemana}
         calendario={calendarioData}
         kpis={kpiCards}
@@ -2726,14 +2412,14 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="flex flex-col items-center rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2">
-                  <span className="text-[10px] font-semibold text-blue-400 tracking-wide">META 00:05:00</span>
+                  <span className="text-[10px] font-semibold text-blue-400 tracking-wide">META {formatMinutosCompleto(metasSla.respostaMinutos)}</span>
                   <span className="text-xl font-mono font-bold text-blue-300">
                     {formatMinutosCompleto(temposExibicao.tempoMedioAbertura)}
                   </span>
                   <span className="text-[9px] text-slate-400">Tempo médio abertura</span>
                 </div>
                 <div className="flex flex-col items-center px-4 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10">
-                  <span className="text-[10px] font-semibold text-emerald-400 tracking-wide">META 04:00:00</span>
+                  <span className="text-[10px] font-semibold text-emerald-400 tracking-wide">META {formatMinutosCompleto(metasSla.solucaoMinutos)}</span>
                   <span className="text-xl font-mono font-bold text-emerald-300">
                     {formatMinutosCompleto(temposExibicao.tempoMedioSolucao)}
                   </span>
@@ -2990,7 +2676,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
             <div className="flex items-center gap-4 p-3 rounded-xl bg-white/5">
               <div className="flex flex-col">
                 <span className="text-[10px] uppercase text-slate-400 tracking-wider">Meta</span>
-                <span className="text-lg font-mono font-bold text-blue-400">{formatMinutosCompleto(META_RESPOSTA_MINUTOS)}</span>
+                <span className="text-lg font-mono font-bold text-blue-400">{formatMinutosCompleto(metasSla.respostaMinutos)}</span>
               </div>
               <div className="w-px h-10 bg-slate-600" />
               <div className="flex flex-col">
@@ -3118,7 +2804,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
             <div className="flex items-center gap-4 p-3 rounded-xl bg-white/5">
               <div className="flex flex-col">
                 <span className="text-[10px] uppercase text-slate-400 tracking-wider">Meta</span>
-                <span className="text-lg font-mono font-bold text-emerald-400">{formatMinutosCompleto(META_ATENDIMENTO_HORAS * 60)}</span>
+                <span className="text-lg font-mono font-bold text-emerald-400">{formatMinutosCompleto(metasSla.solucaoMinutos)}</span>
               </div>
               <div className="w-px h-10 bg-slate-600" />
               <div className="flex flex-col">

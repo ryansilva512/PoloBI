@@ -63,6 +63,8 @@ export interface ManagementDashboardProps {
   chamadosAtivos: ManagementActiveTicket[];
   tempoAbertura: string;
   tempoSolucao: string;
+  metaResposta: string;
+  metaSolucao: string;
   atividade: ManagementActivityItem[];
   calendario: ManagementCalendarData;
   kpis: ManagementKpi[];
@@ -213,6 +215,8 @@ export function ManagementDashboard({
   chamadosAtivos,
   tempoAbertura,
   tempoSolucao,
+  metaResposta,
+  metaSolucao,
   atividade,
   calendario,
   kpis,
@@ -363,14 +367,14 @@ export function ManagementDashboard({
           panelClass,
           "group relative flex h-full min-h-[88px] items-center overflow-auto border-sky-500/20 bg-sky-500/[0.035] p-3 [scrollbar-color:rgba(71,85,105,0.55)_transparent] [scrollbar-width:thin] xl:min-h-0 [@media(max-height:820px)]:p-2",
         )}
-        aria-label={`Tempo médio de resposta ${tempoAbertura}; meta 00:05:00`}
+        aria-label={`Tempo médio de resposta ${tempoAbertura}; meta ${metaResposta}`}
       >
         <div className="flex w-full min-w-0 items-center justify-center gap-3 [@media(max-height:820px)]:gap-2">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-sky-400/15 bg-sky-400/10 text-sky-300 [@media(max-height:820px)]:h-7 [@media(max-height:820px)]:w-7" aria-hidden="true">
             <Timer className="h-4 w-4" />
           </span>
           <div className="min-w-0 text-center">
-            <p className="truncate text-[9px] font-bold uppercase tracking-[0.12em] text-sky-400">Meta de resposta · 00:05:00</p>
+            <p className="truncate text-[9px] font-bold uppercase tracking-[0.12em] text-sky-400">Meta de resposta · {metaResposta}</p>
             <p className="mt-1 font-mono text-xl font-black leading-none text-sky-200 tabular-nums [@media(max-height:820px)]:mt-0.5 [@media(max-height:820px)]:text-lg">{tempoAbertura}</p>
           </div>
         </div>
@@ -382,14 +386,14 @@ export function ManagementDashboard({
           panelClass,
           "group relative flex h-full min-h-[88px] items-center overflow-auto border-emerald-500/20 bg-emerald-500/[0.035] p-3 [scrollbar-color:rgba(71,85,105,0.55)_transparent] [scrollbar-width:thin] xl:min-h-0 [@media(max-height:820px)]:p-2",
         )}
-        aria-label={`Tempo médio de solução ${tempoSolucao}; meta 04:00:00`}
+        aria-label={`Tempo médio de solução ${tempoSolucao}; meta ${metaSolucao}`}
       >
         <div className="flex w-full min-w-0 items-center justify-center gap-3 [@media(max-height:820px)]:gap-2">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-emerald-400/15 bg-emerald-400/10 text-emerald-300 [@media(max-height:820px)]:h-7 [@media(max-height:820px)]:w-7" aria-hidden="true">
             <Clock3 className="h-4 w-4" />
           </span>
           <div className="min-w-0 text-center">
-            <p className="truncate text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">Meta de solução · 04:00:00</p>
+            <p className="truncate text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">Meta de solução · {metaSolucao}</p>
             <p className="mt-1 font-mono text-xl font-black leading-none text-emerald-200 tabular-nums [@media(max-height:820px)]:mt-0.5 [@media(max-height:820px)]:text-lg">{tempoSolucao}</p>
           </div>
         </div>
