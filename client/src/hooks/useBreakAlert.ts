@@ -159,7 +159,7 @@ export function useBreakAlert() {
                 const audio = new Audio();
                 let fallbackStarted = false;
                 audio.loop = true;
-                audio.volume = 0.5;
+                audio.volume = 0.25;
                 audio.preload = 'none';
                 audio.dataset.songName = songName;
                 audio.src = path;
@@ -227,7 +227,7 @@ export function useBreakAlert() {
                     clearInterval(fadeOut);
                     audio.pause();
                     audio.currentTime = 0;
-                    audio.volume = 0.5;
+                    audio.volume = 0.25;
                     activeAudioRef.current = null;
                 }
             }, 100);
