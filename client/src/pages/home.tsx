@@ -228,6 +228,15 @@ const isAssignedOperatorName = (value: string) => {
   ].includes(normalized);
 };
 
+const normalizeChatbotName = (value: string): string => value
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]/g, '');
+
+const isChatbotOperatorName = (value: string): boolean =>
+  normalizeChatbotName(value).startsWith('integracaochatbot');
+
 const resolveTicketOperator = (ticket: any): string => {
   const candidates = [
     ticket?.tecnico,
@@ -245,6 +254,16 @@ const resolveTicketOperator = (ticket: any): string => {
   }
   return '';
 };
+
+const isChatbotIntegrationTicket = (ticket: any, operator: string): boolean =>
+  isChatbotOperatorName(operator) || (
+    normalizeChatbotName(String(ticket?.origem ?? '')) === 'integracao' &&
+    String(ticket?.descricao ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .includes('dados informados pelo cliente')
+  );
 
 export type HomeMode = "dashboard" | "management";
 
@@ -1170,6 +1189,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
     status?: string | { text?: string };
     mesa_trabalho?: string | { text?: string };
     nome?: string;
+    chatbotWaiting?: boolean;
   };
 
   type OpenTicketLifecycleEvent = {
@@ -1187,6 +1207,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         status: typeof ticket.status === 'object' ? ticket.status?.text : ticket.status,
         mesa_trabalho: typeof ticket.mesa_trabalho === 'object' ? ticket.mesa_trabalho?.text : ticket.mesa_trabalho,
         nome: ticket.nome,
+        chatbotWaiting: ticket.chatbotWaiting,
       });
       return;
     }
@@ -1215,6 +1236,8 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
         if (!Number.isFinite(codigo)) return;
 
         const tecnicoAtual = resolveTicketOperator(ticket);
+        const chatbotWaiting = isChatbotIntegrationTicket(ticket, tecnicoAtual) &&
+          (!tecnicoAtual || isChatbotOperatorName(tecnicoAtual));
         const tecnicoAnterior = String(previousTecnicos.get(codigo) || '').trim();
         const isNewTicket = !seenIds.has(codigo);
         const eventData: OpenTicketAlertData = {
@@ -1225,6 +1248,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
           status: ticket.status || { text: 'Aberto' },
           mesa_trabalho: ticket.mesa_trabalho || { text: 'Suporte' },
           nome: tecnicoAtual || 'Não atribuído',
+          chatbotWaiting,
         };
 
         if (isNewTicket) {
@@ -1235,8 +1259,9 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
         if (
           tecnicoAtual &&
+          !isChatbotOperatorName(tecnicoAtual) &&
           tecnicoAtual !== 'Não atribuído' &&
-          (isNewTicket || !tecnicoAnterior || tecnicoAnterior === 'Não atribuído')
+          (isNewTicket || !tecnicoAnterior || tecnicoAnterior === 'Não atribuído' || isChatbotOperatorName(tecnicoAnterior))
         ) {
           console.log('🙋 OPERADOR PEGOU CHAMADO:', codigo, '→', tecnicoAtual);
           chamadosAtribuidos.push(eventData);
@@ -1263,7 +1288,7 @@ export default function Home({ mode = "dashboard" }: HomeProps) {
 
     novosChamados.forEach((ticket) => {
       const tecnico = String(ticket.nome || '').trim();
-      if ((tecnico && tecnico !== 'Não atribuído') || slaTimersRef.current.has(ticket.codigo)) return;
+      if ((tecnico && tecnico !== 'Não atribuído' && !isChatbotOperatorName(tecnico)) || slaTimersRef.current.has(ticket.codigo)) return;
 
       const { codigo, assunto } = ticket;
       const cliente = ticket.nome_fantasia || 'Desconhecido';

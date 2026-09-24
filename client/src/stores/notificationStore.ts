@@ -29,6 +29,7 @@ export interface NovoChamadoData extends NotificationDataBase {
   status?: string;
   mesa_trabalho?: string;
   nome?: string;
+  chatbotWaiting?: boolean;
 }
 
 export interface FinalizadoData extends NotificationDataBase {
@@ -182,6 +183,9 @@ export function buildAnnouncementText(
   switch (type) {
     case "novo_chamado": {
       const ticket = data as NovoChamadoData;
+      if (ticket.chatbotWaiting) {
+        return `O chamado do cliente ${cleanSpeechValue(ticket.nome_fantasia, "não informado")} está no chat do Ippolo Hub esperando atendimento.`;
+      }
       return `Novo chamado do cliente ${cleanSpeechValue(ticket.nome_fantasia, "não informado")}. Assunto: ${cleanSpeechValue(ticket.assunto, "não informado")}.`;
     }
     case "chamado_atribuido": {
